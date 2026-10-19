@@ -13,6 +13,7 @@ MODULE_LAYERS: dict[str, int] = {
     "mms_csv": 0,
     "record_fields": 0,
     "arbitrage_plan": 1,
+    "region_factors": 1,
     "daily_revenue": 2,
 }
 

@@ -6,6 +6,7 @@ import pytest
 
 from analysis.nem_day import (
     FIVE_MINUTE_INTERVAL,
+    FIVE_MINUTE_INTERVALS_PER_DAY,
     HALF_HOUR_INTERVAL,
     HALF_HOURS_PER_DAY,
     INTERVAL_HOURS,
@@ -23,6 +24,11 @@ def test_interval_hours_is_half_hour_like_javascript() -> None:
 def test_half_hours_per_day_is_48() -> None:
     """一天有 48 個 30 分鐘時段。"""
     assert HALF_HOURS_PER_DAY == 48
+
+
+def test_five_minute_intervals_per_day_is_288() -> None:
+    """一天有 288 個 5 分鐘時段。"""
+    assert FIVE_MINUTE_INTERVALS_PER_DAY == 288
 
 
 def test_parse_mms_timestamp_reads_slash_format() -> None:
