@@ -58,13 +58,32 @@ uv run --no-project python -m http.server 8000
 
 ## 測試
 
-需要 Node 22 以上，沒有 npm 依賴：
+網頁需要 Node 22 以上，沒有 npm 依賴；離線分析用 uv：
 
 ```bash
 node --test "tests/*.test.js"
+uv run pytest analysis/
 ```
 
-CI 在每個 PR 跑同一個指令（`.github/workflows/ci.yml`）。
+CI 在每個 PR 跑同樣兩個指令（`.github/workflows/ci.yml`）。
+
+## 離線分析
+
+`analysis/` 量化影響 NSW1 每日套利收益的因素，用 HiGHS 求各因素的權重，結果寫到 `data/factor_weights.json`，給情境頁當建議基準值（#12）。
+
+| 項目 | 內容 |
+|---|---|
+| 被解釋變數 | 每日套利收益：5 MW／20 MWh、MLF 1，套用主頁的 `select_best_plan`（Python 版與 JS 版共用 `tests/fixtures/select_best_plan_cases.json` 確認一致） |
+| 因素 | 日均需求、晚間尖峰需求、供給餘裕、淨進出口、雪梨天然氣價、NSW 電池放電功率 |
+| 求解 | 收益取 log(1 + 收益)，收益與因素都轉 z 分數，因素正負號依 Spearman 相關方向調整；L1 迴歸，權重非負、加總為 1 |
+
+資料來源與每個欄位的意義在 [`docs/data_sources.md`](docs/data_sources.md)。AEMO 原始資料約 1.4 GB，不在本 repo，要先 clone `nsw-dispatch-bess-strategy`：
+
+```bash
+NSW_DISPATCH_INPUT_DIRECTORY=../nsw-dispatch-bess-strategy/input uv run python -m analysis.build_factor_weights
+```
+
+本機約 30 秒。CI 不跑這一步，只跑測試；`data/factor_weights.json` 在本機產生後 commit。
 
 ## 檔案結構
 

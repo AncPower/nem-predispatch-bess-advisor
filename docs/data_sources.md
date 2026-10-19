@@ -16,15 +16,15 @@
 | 3 | AEMO 每月電價與需求檔（手動上傳） | 網頁使用中 | `src/history_calibration.js` |
 | 4 | GitHub Issues，標籤 `special-date` | 網頁使用中 | `src/special_date_notes.js` |
 | 5 | 情境工具的市場預設值 | 網頁使用中，**沒有原始來源** | `src/scenario_presets.js` |
-| 6 | AEMO STTM 雪梨天然氣每日價格 | 已存進 repo，#11 使用 | `data/external/sttm_sydney_daily_price.csv` |
+| 6 | AEMO STTM 雪梨天然氣每日價格 | 已存進 repo，離線分析使用中 | `data/external/sttm_sydney_daily_price.csv` |
 | 7 | AER 天然氣財政年度平均價 | 已存進 repo，只用來核對 #6 | `data/external/aer_gas_market_prices_financial_year.csv` |
-| 8 | AEMO 機組登記資料（NSW 電池） | 已存進 repo，#11 使用 | `data/external/nsw_battery_units.csv` |
-| 9 | AEMO 電價與區域資料（`nsw-dispatch-bess-strategy` 的 `input/`） | #11 規劃中 | 另一個 repo，路徑由環境變數設定 |
+| 8 | AEMO 機組登記資料（NSW 電池） | 已存進 repo，離線分析使用中 | `data/external/nsw_battery_units.csv` |
+| 9 | AEMO 電價與區域資料（`nsw-dispatch-bess-strategy` 的 `input/`） | 離線分析使用中 | `analysis/local_sources.py`；檔案在另一個 repo，路徑由環境變數設定 |
 | 10 | Open-Meteo 歷史天氣 API | #11 規劃中 | — |
 | 11 | AEMO 機組發電量 `DISPATCH_UNIT_SCADA` | #11 規劃中 | — |
 | 12 | AEMO 屋頂型太陽能 `ROOFTOP_PV_ACTUAL` | #11 規劃中 | — |
 
-特殊事件（#14）還沒有資料，補上後加進本表。
+特殊事件（#14）還沒有資料，補上後加進本表。離線分析的輸出檔 `data/factor_weights.json` 寫在最後一節。
 
 ## 網頁使用中的來源
 
@@ -148,15 +148,54 @@
 - 這半年先不採計於公式計算（2026-10-19 決定）：「電池裝置量」因素只用 2024-07 起的資料，不補值，也不用 0 代替。
 - 更新：每月下載最新月份的這兩個表，重新篩選即可，因為裡面已有完整歷史。
 
+## 離線分析使用的本機資料
+
+### 9. AEMO 電價與區域資料
+
+| 項目 | 說明 |
+|---|---|
+| 位置 | `nsw-dispatch-bess-strategy` repo 的 `input/{期間}/`，由環境變數 `NSW_DISPATCH_INPUT_DIRECTORY` 指定；資料不進本 repo |
+| 涵蓋期間 | 2023-12-01 到 2026-08-31；三個期間資料夾互相重疊，同一時段以時間戳記去除重複 |
+| `trading_price.csv` | AEMO MMS `TRADING PRICE` 表：每 5 分鐘一筆區域結算電價 `RRP`（AUD/MWh）。只取 `REGIONID = NSW1` |
+| `p5min_region_solution.csv` | AEMO MMS `P5MIN REGIONSOLUTION` 表：每 5 分鐘求解一次、每次預測 12 個時段。只取每次求解的第一個時段（`RUN_DATETIME = INTERVAL_DATETIME`），它最接近實際調度；排除介入（`INTERVENTION ≠ 0`） |
+| 一天的定義 | NEM 時間 00:00 到 24:00，以時段開始時間判斷（AEMO 時間戳記是時段結束，先減 5 分鐘）；不足 288 個時段的日子不用 |
+
+**用在公式上：**
+
+| 用途 | 算法 | 程式 |
+|---|---|---|
+| 每日套利收益（被解釋變數） | 每 6 個 5 分鐘電價平均成一個 30 分鐘電價，以 5 MW／20 MWh、MLF 1 跑 `select_best_plan`（與主頁同一套規則），取最佳計畫的總收益 | `analysis/arbitrage_revenue.py` |
+| 日均需求 | 當天 `TOTALDEMAND` 平均（MW） | `analysis/daily_factors.py` |
+| 晚間尖峰需求 | 17:00–21:00 的 `TOTALDEMAND` 最大值（MW） | 同上 |
+| 供給餘裕 | 當天 `AVAILABLEGENERATION − TOTALDEMAND` 的最小值（MW），代表當天最吃緊的時刻 | 同上 |
+| 淨進出口 | 當天 `NETINTERCHANGE` 平均（MW）；正值為 NSW 輸出到其他區域 ⚠️ 正負號定義依 AEMO MMS 文件，尚未查證 | 同上 |
+
 ## #11 規劃中的來源
 
-#11 開始實作時再補上欄位與公式細節。
+之後逐一加入，每個來源一個 PR。
 
 | # | 來源 | 網址或 API | 內容 | 預計用法 |
 |---|---|---|---|---|
-| 9 | AEMO 電價與區域資料 | 本機 `nsw-dispatch-bess-strategy/input/{期間}/` 的 `trading_price.csv`、`p5min_region_solution.csv`，涵蓋 2024-01 到 2026-08 | 30 分鐘交易電價；5 分鐘區域的 `TOTALDEMAND`、`AVAILABLEGENERATION`、`NETINTERCHANGE` | 電價用來算每日套利收益（被解釋變數）；其餘三欄是需求、供給餘裕、淨進出口因素 |
 | 10 | Open-Meteo 歷史天氣 | `https://archive-api.open-meteo.com/v1/archive?latitude=-33.87&longitude=151.21&daily=temperature_2m_mean,temperature_2m_max&timezone=Australia%2FSydney`（已實測） | 雪梨每日平均與最高氣溫 | 氣溫偏離同月常態的度數 |
 | 11 | AEMO 機組發電量 | MMSDM 每月的 `DISPATCH_UNIT_SCADA` 表（目錄同 #8，2024-01 約 22.6 MB） | 每台機組每 5 分鐘的實際出力（MW） | NSW 太陽能、風力的日發電量。⚠️ 要靠另一個表判斷燃料類型，還沒確認用哪個 |
 | 12 | AEMO 屋頂型太陽能 | MMSDM 每月的 `ROOFTOP_PV_ACTUAL` 表；最近幾天在 <https://nemweb.com.au/Reports/Current/ROOFTOP_PV/ACTUAL/> | 每區域每 30 分鐘的屋頂型太陽能估計出力（MW） | NSW 屋頂型太陽能的日發電量。⚠️ `TYPE` 欄分 `MEASUREMENT` 與 `SATELLITE` 兩種估法，只能選一種 |
 
 MMSDM 的檔名格式改過：2024-01 是 `PUBLIC_DVD_{表名}_{YYYYMM}010000.zip`，2026-08 起是 `PUBLIC_ARCHIVE#{表名}#FILE01#{YYYYMM}010000.zip`。程式要先讀目錄列表、用表名比對檔名，下載時 `#` 寫成 `%23`。
+
+## 分析輸出：`data/factor_weights.json`
+
+由 `analysis/build_factor_weights.py` 產生，進 git、隨 GitHub Pages 部署，給情境頁讀取（#12）。
+
+| 欄位 | 意義 |
+|---|---|
+| `generated_at` | 產生時間（UTC，ISO 8601） |
+| `data_period` | 擬合用的期間與天數：所有因素與收益都有值的日子 |
+| `battery_spec` | 算收益用的電池規格 |
+| `revenue` | 收益取 log(1 + AUD) 後的平均數與標準差、收益中位數（AUD），以及把預測值換算回 AUD 的公式 |
+| `intercept` | L1 迴歸的截距（z 分數尺度） |
+| `fit_quality` | R² 與平均絕對誤差（log 尺度 z 分數、換算回 AUD 兩種） |
+| `factors[]` | 每個因素的 `factor_name`（程式名稱）、`label`（中文名稱）、`unit`（單位）、`source`（資料來源）、`weight`（非負、取到小數第 6 位後加總剛好為 1）、`direction`（1 代表因素越高收益越高）、`spearman_correlation`、擬合期間的 `mean` 與 `standard_deviation`、`monthly_baseline`（1–12 月的中位數，用各因素自己的全部資料） |
+
+限制：`battery_power_mw` 的 `monthly_baseline` 把逐年成長的裝置量按月份合併取中位數（例如 7 月混合 2024 年的 140 MW 與 2025 年的 1,670 MW），不適合直接當作預測期間的基準值；#12 使用前要決定改用最新值或其他做法。
+
+收益取 log 的原因：2024-07 到 2026-08 的每日收益中位數約 2,650 AUD、最高 228,011 AUD，不轉換時少數尖峰日主導擬合，R² 只有 -0.03；取 log 後為 0.48（2026-10-19 決定）。
