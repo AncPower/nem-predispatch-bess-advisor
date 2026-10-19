@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-19T15:38:06Z",
+  "period": {
+    "start_date": "2024-07-01",
+    "end_date": "2026-08-31",
+    "day_count": 789,
+    "excluded_days": [
+      {
+        "date": "2024-09-05",
+        "reason": "P5MIN 求解只有 276 次（應為 288 次）"
+      },
+      {
+        "date": "2024-11-19",
+        "reason": "P5MIN 求解只有 284 次（應為 288 次）"
+      },
+      {
+        "date": "2025-03-04",
+        "reason": "P5MIN 求解只有 287 次（應為 288 次）"
+      }
+    ]
+  },
+  "battery_specification": {
+    "power_mw": 5,
+    "capacity_mwh": 20,
+    "marginal_loss_factor": 1
+  },
+  "target": {
+    "name": "daily_arbitrage_revenue_aud",
+    "transform": "log1p",
+    "mean": 7.918893686630741,
+    "standard_deviation": 0.8110951766445487,
+    "median_aud": 2651.4333325000002
+  },
+  "model": {
+    "objective": "least_absolute_deviation",
+    "solver": "highs",
+    "solver_version": "1.15.1",
+    "intercept": -0.07954344674732511,
+    "scale": 0.7665111553338396,
+    "prediction_formula": "log1p(收益) = target.mean + target.standard_deviation × (model.intercept + model.scale × Σ weight × direction × (因素值 − mean) ÷ standard_deviation)"
+  },
+  "factors": [
+    {
+      "factor_name": "demand_mean_mw",
+      "unit": "MW",
+      "description": "NSW1 當天 TOTALDEMAND 的平均（P5MIN 每次求解的第一個時段）",
+      "weight": 0.0,
+      "direction": 1,
+      "correlation": 0.15341072757363297,
+      "mean": 7532.494281263205,
+      "standard_deviation": 935.9779079087316,
+      "monthly_baseline": {
+        "01": 7168.11265625,
+        "02": 7799.4746875,
+        "03": 7552.367083333334,
+        "04": 6932.548420138889,
+        "05": 7580.2825,
+        "06": 8526.242621527777,
+        "07": 8642.107847222222,
+        "08": 8056.176458333332,
+        "09": 6706.992118055556,
+        "10": 6525.040225694444,
+        "11": 6740.001666666667,
+        "12": 7083.115885416667
+      },
+      "latest_value": {
+        "year_month": "2026-08",
+        "value": 8056.176458333332
+      }
+    },
+    {
+      "factor_name": "evening_peak_demand_mw",
+      "unit": "MW",
+      "description": "時段開始於 17:00–21:00 的 TOTALDEMAND 最大值",
+      "weight": 0.005370465605368898,
+      "direction": 1,
+      "correlation": 0.2626135123247111,
+      "mean": 9662.131178707225,
+      "standard_deviation": 1228.1689464979793,
+      "monthly_baseline": {
+        "01": 8945.575,
+        "02": 9748.09,
+        "03": 9272.06,
+        "04": 8795.935000000001,
+        "05": 9465.905,
+        "06": 10813.09,
+        "07": 11005.47,
+        "08": 10245.3,
+        "09": 8936.45,
+        "10": 8456.380000000001,
+        "11": 8561.16,
+        "12": 9072.395
+      },
+      "latest_value": {
+        "year_month": "2026-08",
+        "value": 10161.64
+      }
+    },
+    {
+      "factor_name": "supply_margin_min_mw",
+      "unit": "MW",
+      "description": "當天 AVAILABLEGENERATION − TOTALDEMAND 的最小值",
+      "weight": 0.4949937438974917,
+      "direction": -1,
+      "correlation": -0.6190416350441056,
+      "mean": 2522.660545449938,
+      "standard_deviation": 1321.8402888678334,
+      "monthly_baseline": {
+        "01": 3696.8280350000005,
+        "02": 3226.661605,
+        "03": 3254.25604,
+        "04": 2512.46364,
+        "05": 2686.4616400000014,
+        "06": 2403.58857,
+        "07": 2435.68016,
+        "08": 2172.2299999999996,
+        "09": 1952.6651600000005,
+        "10": 1896.563400000001,
+        "11": 1999.8369999999995,
+        "12": 2577.6785499999996
+      },
+      "latest_value": {
+        "year_month": "2026-08",
+        "value": 3293.4929999999995
+      }
+    },
+    {
+      "factor_name": "net_interchange_mean_mw",
+      "unit": "MW",
+      "description": "當天 NETINTERCHANGE 的平均；正值為 NSW 淨送出、負值為淨輸入",
+      "weight": 0.10526353028776013,
+      "direction": 1,
+      "correlation": 0.08786698460174279,
+      "mean": -512.6756654872553,
+      "standard_deviation": 371.3077383767481,
+      "monthly_baseline": {
+        "01": -83.44461805555555,
+        "02": -264.1401388888889,
+        "03": -473.18371527777776,
+        "04": -582.1956423611111,
+        "05": -442.15133680555556,
+        "06": -794.2717013888889,
+        "07": -673.8376736111111,
+        "08": -725.4380555555556,
+        "09": -733.1006944444445,
+        "10": -416.12772569444445,
+        "11": -341.0418402777778,
+        "12": -246.06727430555554
+      },
+      "latest_value": {
+        "year_month": "2026-08",
+        "value": -802.1036111111111
+      }
+    },
+    {
+      "factor_name": "gas_price_aud_per_gj",
+      "unit": "AUD/GJ",
+      "description": "STTM 雪梨天然氣事前價，gas_date 與交易日同一天",
+      "weight": 0.1315300079412313,
+      "direction": 1,
+      "correlation": 0.5006405252667446,
+      "mean": 12.114138529784544,
+      "standard_deviation": 1.8851016646978904,
+      "monthly_baseline": {
+        "01": 12.31785,
+        "02": 11.693200000000001,
+        "03": 10.49,
+        "04": 11.31,
+        "05": 9.921,
+        "06": 10.314,
+        "07": 12.33,
+        "08": 12.1423,
+        "09": 12.192,
+        "10": 13.011050000000001,
+        "11": 13.052,
+        "12": 12.8521
+      },
+      "latest_value": {
+        "year_month": "2026-08",
+        "value": 10.99
+      }
+    },
+    {
+      "factor_name": "battery_power_mw",
+      "unit": "MW",
+      "description": "NSW1 已併網電池放電功率加總的當月月底值",
+      "weight": 0.26284225226814795,
+      "direction": -1,
+      "correlation": -0.5045463896751162,
+      "mean": 1974.91381495564,
+      "standard_deviation": 896.3598841993064,
+      "monthly_baseline": {
+        "01": 1964.5,
+        "02": 2064.5,
+        "03": 2969.0,
+        "04": 2294.5,
+        "05": 2294.5,
+        "06": 2419.5,
+        "07": 1670.0,
+        "08": 1735.0,
+        "09": 2285.0,
+        "10": 1747.5,
+        "11": 2285.0,
+        "12": 1955.0
+      },
+      "latest_value": {
+        "year_month": "2026-08",
+        "value": 3409.0
+      }
+    }
+  ],
+  "pending_factors": [
+    {
+      "factor_name": "special_events",
+      "reason": "事件清單尚未整理，見 #14",
+      "weight": 0
+    },
+    {
+      "factor_name": "temperature_anomaly",
+      "reason": "Open-Meteo 歷史氣溫，之後的 PR 加入",
+      "weight": 0
+    },
+    {
+      "factor_name": "solar_wind_generation",
+      "reason": "AEMO 機組 SCADA，燃料類型的判斷表尚未確認",
+      "weight": 0
+    },
+    {
+      "factor_name": "rooftop_pv_generation",
+      "reason": "AEMO ROOFTOP_PV_ACTUAL，MEASUREMENT 與 SATELLITE 尚未選定",
+      "weight": 0
+    }
+  ],
+  "fit_quality": {
+    "r_squared": 0.4627447819598274,
+    "mean_absolute_error_log": 0.3540441133816606,
+    "mean_absolute_error_aud": 2721.155482271793
+  },
+  "input_fingerprint": {
+    "code_files": {
+      "analysis/__init__.py": "928d8ec3710e816833cd87c4a9c8e85ef88801310454fd3f5ff88a061043f17c",
+      "analysis/arbitrage_plan.py": "ae99918f3507357800941890da36535f46abfc0efb5afec3796f8539131e038f",
+      "analysis/build_factor_weights.py": "8facad08874553d81954632828c78d89fcdcbca127596b2393245a5449dfc7de",
+      "analysis/daily_revenue.py": "07edfdba2ce866f032345c6ed94be584a7b155912b9a331b17dc5f061e1df209",
+      "analysis/external_factors.py": "adeec5ebf8716c83ed64c90258446c6ea62ddad0711815060b774d04a1dc54d6",
+      "analysis/factor_dataset.py": "190b180be190369b53055e640a7088b2fa641d33bc789ba27ece452594c96532",
+      "analysis/factor_weights_report.py": "ee62e6cb173769f1a8b560911c2b95a46ba08999f12819b823815845c2cf6c8d",
+      "analysis/input_fingerprint.py": "4bb90f2233118e563bcd7b4dd659d66fee960bb98444852a216fafabb7bca7d5",
+      "analysis/mms_csv.py": "da85f218401989cc07fb39f30e574d460a7ca2df2fac0383989248f9eead0b89",
+      "analysis/nem_day.py": "b3e0a8ca8afb97ec449af65c1b8c1a727eddfc50a8a8e11dcd6bd754c0e77b39",
+      "analysis/record_fields.py": "b71ce2a163c83bbc2ef64ccd640b7edec4b7e004caeb71c663ce61a206d95620",
+      "analysis/region_factors.py": "9754a4a6ff3b786f0e019df7b42d4c926ed7b02a68c5c70e87f9a7a1e97c5260",
+      "analysis/weight_solver.py": "a7dd8c06bd3e64d73fc81e382ac9ba29dab1ab9e81c16d25875d347004552637"
+    },
+    "external_files": {
+      "data/external/nsw_battery_units.csv": "5ab648d0c9027f62caef0a73e5929dd31acaac5113516bfd95b73b7e6f67abe4",
+      "data/external/sttm_sydney_daily_price.csv": "2058bcc834a34935cb7f513e15fd1a254a94712ae686fb55c2f122f5da292e59"
+    },
+    "combined_sha256": "9a80cde81fff11c094e38b40802eaa5bcb5e374561ef88c87fb2e235d4e7e4b0",
+    "raw_input_files": [
+      {
+        "relative_path": "2024-01_2024-12/p5min_region_solution.csv",
+        "size_bytes": 700504479,
+        "sha256": "dca4bdf691b78630a1425980870b400c3bcc459020c58e850b179d83344c21d0"
+      },
+      {
+        "relative_path": "2024-01_2024-12/trading_price.csv",
+        "size_bytes": 22174254,
+        "sha256": "e8e20c06521eec8123337daa27852ae7f05783537a4b0cc017478200524c9443"
+      },
+      {
+        "relative_path": "2025-01_2025-12/p5min_region_solution.csv",
+        "size_bytes": 727849365,
+        "sha256": "ebfc4fc3ca754fa4d5c47ada492d7ab8655914521925d0d058aa166eb2242ce5"
+      },
+      {
+        "relative_path": "2025-01_2025-12/trading_price.csv",
+        "size_bytes": 21629335,
+        "sha256": "a23af8ad0982d5ae73044943d46a7ad4de913e1b4d50c691f4b143449b78adc0"
+      },
+      {
+        "relative_path": "2026-01_2026-08/p5min_region_solution.csv",
+        "size_bytes": 470503576,
+        "sha256": "ef01c6e99fb9dacd30c6af61550aae15d78be6bbc553b5f7367121aa919160a3"
+      },
+      {
+        "relative_path": "2026-01_2026-08/trading_price.csv",
+        "size_bytes": 13848995,
+        "sha256": "1b9f0edd61c161811d1c693b1cd027bde96ca7ddcd646ae43f9e59c9810b70ea"
+      }
+    ]
+  }
+}
