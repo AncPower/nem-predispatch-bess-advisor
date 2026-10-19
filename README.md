@@ -64,11 +64,18 @@ uv run --no-project python -m http.server 8000
 node --test "tests/*.test.js"
 ```
 
-CI 在每個 PR 跑同一個指令（`.github/workflows/ci.yml`）。
+離線分析層（`analysis/`，Python）用 uv 管理，測試用 pytest：
+
+```bash
+uv sync
+uv run pytest
+```
+
+CI 在每個 PR 跑這兩組測試（`.github/workflows/ci.yml` 的 `test` 與 `analysis` 兩個 job）。
 
 ## 檔案結構
 
-各模組的職責與依賴在 [`docs/module_map.md`](docs/module_map.md)。所有資料來源的網址、內容、意義與用在哪條公式在 [`docs/data_sources.md`](docs/data_sources.md)；外部資料的存檔放在 `data/external/`。
+各模組的職責與依賴在 [`docs/module_map.md`](docs/module_map.md)。`analysis/` 是 #11 的離線分析層：目前有 MMS CSV 解析、`select_best_plan` 的 Python 版，以及由 5 分鐘電價算每日套利收益；因素與權重求解之後加入。所有資料來源的網址、內容、意義與用在哪條公式在 [`docs/data_sources.md`](docs/data_sources.md)；外部資料的存檔放在 `data/external/`。
 
 ## 發佈
 
