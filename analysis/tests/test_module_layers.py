@@ -12,6 +12,7 @@ MODULE_LAYERS: dict[str, int] = {
     "nem_day": 0,
     "mms_csv": 0,
     "record_fields": 0,
+    "input_fingerprint": 0,
     "arbitrage_plan": 1,
     "region_factors": 1,
     "external_factors": 1,
