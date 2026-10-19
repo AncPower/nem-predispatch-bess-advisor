@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
+from analysis.mms_csv import MmsRecord
 from analysis.nem_day import FIVE_MINUTE_INTERVAL, FIVE_MINUTE_INTERVALS_PER_DAY
 from analysis.region_factors import (
     RegionSnapshot,
@@ -21,10 +22,11 @@ def build_region_record(
     available_generation: str = "10000",
     net_interchange: str = "-500",
     extra_fields: dict[str, str] | None = None,
-) -> dict[str, str]:
+    record_location: str = "測試檔 第 2 行",
+) -> MmsRecord:
     """組一筆 P5MIN.REGIONSOLUTION 資料列。"""
     timestamp_format = "%Y/%m/%d %H:%M:%S"
-    return {
+    field_values = {
         "RUN_DATETIME": run_end.strftime(timestamp_format),
         "INTERVAL_DATETIME": (interval_end or run_end).strftime(timestamp_format),
         "REGIONID": "NSW1",
@@ -33,6 +35,7 @@ def build_region_record(
         "NETINTERCHANGE": net_interchange,
         **(extra_fields or {}),
     }
+    return MmsRecord(field_values, record_location)
 
 
 def build_full_day(day_start: datetime, demand_for_step: dict[int, float] | None = None) -> dict[datetime, RegionSnapshot]:
@@ -74,25 +77,28 @@ def test_collect_region_snapshots_skips_intervention_runs() -> None:
 
 def test_collect_region_snapshots_skips_other_regions() -> None:
     """其他區域的列：略過。"""
-    other_region_record = {**build_region_record(FIRST_DAY_START + FIVE_MINUTE_INTERVAL), "REGIONID": "VIC1"}
+    other_region_record = build_region_record(FIRST_DAY_START + FIVE_MINUTE_INTERVAL, extra_fields={"REGIONID": "VIC1"})
 
     assert collect_region_snapshots([other_region_record], "NSW1") == {}
 
 
 def test_collect_region_snapshots_rejects_conflicting_duplicate() -> None:
-    """重疊資料夾中同一次求解的值不同：丟出帶時間的 ValueError。"""
+    """重疊資料夾中同一次求解的值不同：丟出帶時間與兩個來源位置的 ValueError。"""
     run_end = FIRST_DAY_START + FIVE_MINUTE_INTERVAL
-    region_records = [build_region_record(run_end), build_region_record(run_end, total_demand="7001")]
+    region_records = [
+        build_region_record(run_end, record_location="甲檔 第 3 行"),
+        build_region_record(run_end, total_demand="7001", record_location="乙檔 第 8 行"),
+    ]
 
-    with pytest.raises(ValueError, match="2025-04-10T00:05:00"):
+    with pytest.raises(ValueError, match="2025-04-10T00:05:00.*甲檔 第 3 行.*乙檔 第 8 行"):
         collect_region_snapshots(region_records, "NSW1")
 
 
 def test_collect_region_snapshots_rejects_text_value() -> None:
-    """數值欄不是數字：丟出指出欄名的 ValueError。"""
+    """數值欄不是數字：丟出指出來源位置與欄名的 ValueError。"""
     region_records = [build_region_record(FIRST_DAY_START + FIVE_MINUTE_INTERVAL, total_demand="")]
 
-    with pytest.raises(ValueError, match="TOTALDEMAND"):
+    with pytest.raises(ValueError, match="測試檔 第 2 行.*TOTALDEMAND"):
         collect_region_snapshots(region_records, "NSW1")
 
 

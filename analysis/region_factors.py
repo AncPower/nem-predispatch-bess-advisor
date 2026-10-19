@@ -12,6 +12,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time
 
+from analysis.mms_csv import MmsRecord
 from analysis.nem_day import (
     FIVE_MINUTE_INTERVAL,
     FIVE_MINUTE_INTERVALS_PER_DAY,
@@ -60,7 +61,19 @@ class RegionFactorResult:
     incomplete_run_counts: dict[date, int]
 
 
-def is_current_state_record(region_record: Mapping[str, str], region_id: str) -> bool:
+def describe_record(region_record: MmsRecord) -> str:
+    """錯誤訊息用的位置說明：檔案與行號，加上表名。
+
+    Args:
+        region_record: P5MIN.REGIONSOLUTION 的一列。
+
+    Returns:
+        位置說明。
+    """
+    return f"{region_record.record_location}：{REGION_TABLE_LABEL}"
+
+
+def is_current_state_record(region_record: MmsRecord, region_id: str) -> bool:
     """這一列是否為指定區域、無介入、求解第一個時段的資料。
 
     Args:
@@ -69,38 +82,42 @@ def is_current_state_record(region_record: Mapping[str, str], region_id: str) ->
 
     Returns:
         符合時為 True。
+
+    Raises:
+        ValueError: 缺少區域或時間欄位時，訊息帶檔案與行號。
     """
-    if read_record_field(region_record, REGION_FIELD, REGION_TABLE_LABEL) != region_id:
+    field_values = region_record.field_values
+    record_label = describe_record(region_record)
+    if read_record_field(field_values, REGION_FIELD, record_label) != region_id:
         return False
-    if region_record.get(INTERVENTION_FIELD, NO_INTERVENTION) != NO_INTERVENTION:
+    if field_values.get(INTERVENTION_FIELD, NO_INTERVENTION) != NO_INTERVENTION:
         return False
-    run_text = read_record_field(region_record, RUN_FIELD, REGION_TABLE_LABEL)
-    return run_text == read_record_field(region_record, INTERVAL_FIELD, REGION_TABLE_LABEL)
+    run_text = read_record_field(field_values, RUN_FIELD, record_label)
+    return run_text == read_record_field(field_values, INTERVAL_FIELD, record_label)
 
 
-def parse_region_snapshot(region_record: Mapping[str, str], record_label: str) -> RegionSnapshot:
+def parse_region_snapshot(region_record: MmsRecord) -> RegionSnapshot:
     """把資料列的三個數值欄轉成快照。
 
     Args:
         region_record: P5MIN.REGIONSOLUTION 的一列。
-        record_label: 錯誤訊息用的位置說明。
 
     Returns:
         區域快照。
 
     Raises:
-        ValueError: 任一數值欄缺漏或不是有限數值時。
+        ValueError: 任一數值欄缺漏或不是有限數值時，訊息帶檔案與行號。
     """
+    field_values = region_record.field_values
+    record_label = describe_record(region_record)
     return RegionSnapshot(
-        total_demand_mw=parse_finite_field(region_record, DEMAND_FIELD, record_label),
-        available_generation_mw=parse_finite_field(region_record, AVAILABLE_GENERATION_FIELD, record_label),
-        net_interchange_mw=parse_finite_field(region_record, NET_INTERCHANGE_FIELD, record_label),
+        total_demand_mw=parse_finite_field(field_values, DEMAND_FIELD, record_label),
+        available_generation_mw=parse_finite_field(field_values, AVAILABLE_GENERATION_FIELD, record_label),
+        net_interchange_mw=parse_finite_field(field_values, NET_INTERCHANGE_FIELD, record_label),
     )
 
 
-def collect_region_snapshots(
-    region_records: Iterable[Mapping[str, str]], region_id: str
-) -> dict[datetime, RegionSnapshot]:
+def collect_region_snapshots(region_records: Iterable[MmsRecord], region_id: str) -> dict[datetime, RegionSnapshot]:
     """從多個檔案的資料列收集「求解時間 → 快照」，重疊的求解去重。
 
     Args:
@@ -111,17 +128,22 @@ def collect_region_snapshots(
         依求解時間（等於第一個時段的結束時間）對應的快照。
 
     Raises:
-        ValueError: 欄位有誤，或同一次求解出現不同的值時。
+        ValueError: 欄位有誤，或同一次求解出現不同的值時；衝突時兩個來源都列出。
     """
     region_snapshots: dict[datetime, RegionSnapshot] = {}
+    snapshot_locations: dict[datetime, str] = {}
     for region_record in region_records:
         if not is_current_state_record(region_record, region_id):
             continue
-        run_end = parse_mms_timestamp(region_record[RUN_FIELD])
-        region_snapshot = parse_region_snapshot(region_record, f"{REGION_TABLE_LABEL} {run_end.isoformat()}")
+        run_end = parse_mms_timestamp(region_record.field_values[RUN_FIELD])
+        region_snapshot = parse_region_snapshot(region_record)
         existing_snapshot = region_snapshots.setdefault(run_end, region_snapshot)
+        existing_location = snapshot_locations.setdefault(run_end, region_record.record_location)
         if existing_snapshot != region_snapshot:
-            raise ValueError(f"{run_end.isoformat()} 的求解出現兩組不同的值：{existing_snapshot} 與 {region_snapshot}")
+            raise ValueError(
+                f"{run_end.isoformat()} 的求解出現兩組不同的值：{existing_snapshot}（{existing_location}）"
+                f" 與 {region_snapshot}（{region_record.record_location}）"
+            )
     return region_snapshots
 
 
