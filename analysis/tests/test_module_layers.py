@@ -18,6 +18,7 @@ MODULE_LAYERS: dict[str, int] = {
     "external_factors": 1,
     "weight_solver": 1,
     "daily_revenue": 2,
+    "factor_dataset": 3,
 }
 
 
