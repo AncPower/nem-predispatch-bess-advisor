@@ -3,7 +3,10 @@ name = "nem-predispatch-bess-advisor"
 version = "0.1.0"
 description = "離線分析層：以 AEMO 歷史資料量化 NSW1 電價因素（#11）"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "highspy>=1.15.1",
+    "numpy>=2.5.4",
+]
 
 [dependency-groups]
 dev = [

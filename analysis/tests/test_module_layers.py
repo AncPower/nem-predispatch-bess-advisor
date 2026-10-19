@@ -11,8 +11,16 @@ PACKAGE_PREFIX: str = "analysis."
 MODULE_LAYERS: dict[str, int] = {
     "nem_day": 0,
     "mms_csv": 0,
+    "record_fields": 0,
+    "input_fingerprint": 0,
     "arbitrage_plan": 1,
+    "region_factors": 1,
+    "external_factors": 1,
+    "weight_solver": 1,
     "daily_revenue": 2,
+    "factor_dataset": 3,
+    "factor_weights_report": 4,
+    "build_factor_weights": 5,
 }
 
 
