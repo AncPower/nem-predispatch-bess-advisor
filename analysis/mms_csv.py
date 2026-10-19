@@ -51,6 +51,14 @@ class LineNumberedReader(Protocol):
 
 
 @dataclass(frozen=True)
+class MmsRecord:
+    """一個資料列：「欄名 → 字串值」，以及它在哪個檔案的第幾行（錯誤訊息用）。"""
+
+    field_values: dict[str, str]
+    record_location: str
+
+
+@dataclass(frozen=True)
 class NumberedRow:
     """已拆欄的 CSV 列，與它在檔案中的實體行號。"""
 
@@ -76,8 +84,8 @@ def number_reader_rows(csv_reader: LineNumberedReader) -> Iterator[NumberedRow]:
 
 def parse_mms_records(
     numbered_rows: Iterable[NumberedRow], mms_table: MmsTableName, source_label: str
-) -> Iterator[dict[str, str]]:
-    """把 MMS 的列轉成「欄名 → 字串值」，只留指定表的資料列。
+) -> Iterator[MmsRecord]:
+    """把 MMS 的列轉成帶來源位置的資料列，只留指定表。
 
     Args:
         numbered_rows: 附行號的 CSV 列，依檔案順序。
@@ -85,7 +93,7 @@ def parse_mms_records(
         source_label: 錯誤訊息裡用來指出來源的名稱，例如檔案路徑。
 
     Yields:
-        每個資料列一筆，鍵為欄名。
+        每個資料列一筆，來源位置為「來源 第 N 行」。
 
     Raises:
         ValueError: 資料列出現在欄名列之前，或欄數和欄名數不同時，訊息帶來源與行號。
@@ -103,16 +111,16 @@ def parse_mms_records(
 
 def build_data_record(
     csv_row: Sequence[str], column_names: tuple[str, ...] | None, row_label: str
-) -> dict[str, str]:
-    """把一個資料列依欄名組成字典。
+) -> MmsRecord:
+    """把一個資料列依欄名組成記錄。
 
     Args:
         csv_row: `D` 開頭的列。
         column_names: 最近一個 `I` 列的欄名；還沒遇到時為 None。
-        row_label: 錯誤訊息用的位置說明。
+        row_label: 這一列的位置說明，存進記錄並用於錯誤訊息。
 
     Returns:
-        「欄名 → 字串值」。
+        帶來源位置的資料列。
 
     Raises:
         ValueError: 沒有欄名，或欄數不符時。
@@ -122,10 +130,10 @@ def build_data_record(
     field_values = csv_row[FIRST_FIELD_INDEX:]
     if len(field_values) != len(column_names):
         raise ValueError(f"{row_label}：資料有 {len(field_values)} 欄，欄名有 {len(column_names)} 欄")
-    return dict(zip(column_names, field_values, strict=True))
+    return MmsRecord(dict(zip(column_names, field_values, strict=True)), row_label)
 
 
-def iterate_mms_file(file_path: Path, mms_table: MmsTableName) -> Iterator[dict[str, str]]:
+def iterate_mms_file(file_path: Path, mms_table: MmsTableName) -> Iterator[MmsRecord]:
     """逐列讀取 MMS CSV 檔，不把整個檔案載入記憶體。
 
     Args:
@@ -133,7 +141,7 @@ def iterate_mms_file(file_path: Path, mms_table: MmsTableName) -> Iterator[dict[
         mms_table: 要讀的表。
 
     Yields:
-        每個資料列一筆，鍵為欄名。
+        每個資料列一筆，來源位置為「檔案路徑 第 N 行」。
     """
     with file_path.open(newline="", encoding="utf-8") as csv_file:
         yield from parse_mms_records(number_reader_rows(csv.reader(csv_file)), mms_table, str(file_path))

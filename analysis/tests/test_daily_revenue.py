@@ -10,15 +10,18 @@ from analysis.daily_revenue import (
     compute_daily_revenue,
     merge_interval_prices,
 )
+from analysis.mms_csv import MmsRecord
 from analysis.nem_day import FIVE_MINUTE_INTERVAL, HALF_HOUR_INTERVAL, HALF_HOURS_PER_DAY
 
 FOUR_HOUR_BATTERY = BatterySpecification(power_mw=5, capacity_mwh=20, marginal_loss_factor=1)
 FIRST_DAY_START = datetime(2025, 4, 10)
 
 
-def build_price_record(settlement_text: str, price_text: str, region_id: str = "NSW1") -> dict[str, str]:
+def build_price_record(
+    settlement_text: str, price_text: str, region_id: str = "NSW1", record_location: str = "測試檔 第 2 行"
+) -> MmsRecord:
     """組一筆 TRADING.PRICE 資料列。"""
-    return {"SETTLEMENTDATE": settlement_text, "REGIONID": region_id, "RRP": price_text}
+    return MmsRecord({"SETTLEMENTDATE": settlement_text, "REGIONID": region_id, "RRP": price_text}, record_location)
 
 
 def build_half_hour_day(day_start: datetime, price_values: list[float]) -> dict[datetime, float]:
@@ -49,10 +52,13 @@ def test_merge_interval_prices_accepts_identical_duplicate() -> None:
 
 
 def test_merge_interval_prices_rejects_conflicting_duplicate() -> None:
-    """同一時段出現兩個不同電價：丟出帶時間與兩個值的 ValueError。"""
-    price_records = [build_price_record("2025/04/10 00:05:00", "58"), build_price_record("2025/04/10 00:05:00", "59")]
+    """同一時段出現兩個不同電價：丟出帶時間、兩個值與兩個來源位置的 ValueError。"""
+    price_records = [
+        build_price_record("2025/04/10 00:05:00", "58", record_location="甲檔 第 7 行"),
+        build_price_record("2025/04/10 00:05:00", "59", record_location="乙檔 第 9 行"),
+    ]
 
-    with pytest.raises(ValueError, match="2025-04-10T00:05:00.*58.0.*59.0"):
+    with pytest.raises(ValueError, match="2025-04-10T00:05:00.*58.0（甲檔 第 7 行）.*59.0（乙檔 第 9 行）"):
         merge_interval_prices(price_records, "NSW1")
 
 
@@ -63,15 +69,17 @@ def test_merge_interval_prices_rejects_non_finite_price() -> None:
 
 
 def test_merge_interval_prices_rejects_text_price_with_timestamp() -> None:
-    """RRP 不是數字：丟出帶時段時間與原字串的 ValueError。"""
-    with pytest.raises(ValueError, match="2025-04-10T00:05:00.*abc"):
+    """RRP 不是數字：丟出帶來源位置、時段時間與原字串的 ValueError。"""
+    with pytest.raises(ValueError, match="測試檔 第 2 行（2025-04-10T00:05:00）.*abc"):
         merge_interval_prices([build_price_record("2025/04/10 00:05:00", "abc")], "NSW1")
 
 
 def test_merge_interval_prices_rejects_missing_field() -> None:
-    """資料列缺少 RRP 欄：丟出指出欄名的 ValueError。"""
-    with pytest.raises(ValueError, match="RRP"):
-        merge_interval_prices([{"SETTLEMENTDATE": "2025/04/10 00:05:00", "REGIONID": "NSW1"}], "NSW1")
+    """資料列缺少 RRP 欄：丟出指出來源位置與欄名的 ValueError。"""
+    incomplete_record = MmsRecord({"SETTLEMENTDATE": "2025/04/10 00:05:00", "REGIONID": "NSW1"}, "測試檔 第 4 行")
+
+    with pytest.raises(ValueError, match="測試檔 第 4 行.*RRP"):
+        merge_interval_prices([incomplete_record], "NSW1")
 
 
 def test_average_half_hour_prices_averages_six_five_minute_prices() -> None:

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from analysis.arbitrage_plan import BatterySpecification, select_best_plan
+from analysis.mms_csv import MmsRecord
 from analysis.nem_day import (
     FIVE_MINUTE_INTERVALS_PER_HALF_HOUR,
     HALF_HOUR_INTERVAL,
@@ -33,7 +34,15 @@ class DailyRevenueResult:
     incomplete_dates: tuple[date, ...]
 
 
-def read_record_field(price_record: Mapping[str, str], field_name: str) -> str:
+@dataclass(frozen=True)
+class SourcedPrice:
+    """一個時段的電價與它來自哪個檔案的哪一行。"""
+
+    price_value: float
+    record_location: str
+
+
+def read_record_field(price_record: MmsRecord, field_name: str) -> str:
     """取出資料列的欄位值。
 
     Args:
@@ -44,20 +53,21 @@ def read_record_field(price_record: Mapping[str, str], field_name: str) -> str:
         欄位字串。
 
     Raises:
-        ValueError: 沒有這個欄位時。
+        ValueError: 沒有這個欄位時，訊息帶檔案與行號。
     """
-    field_value = price_record.get(field_name)
+    field_value = price_record.field_values.get(field_name)
     if field_value is None:
-        raise ValueError(f"TRADING.PRICE 資料列缺少欄位 {field_name}：{dict(price_record)}")
+        raise ValueError(f"{price_record.record_location}：TRADING.PRICE 資料列缺少欄位 {field_name}")
     return field_value
 
 
-def parse_price_value(price_text: str, interval_end: datetime) -> float:
+def parse_price_value(price_text: str, interval_end: datetime, record_location: str) -> float:
     """把 RRP 字串轉成有限浮點數。
 
     Args:
         price_text: RRP 欄的字串。
         interval_end: 時段結束時間，用於錯誤訊息。
+        record_location: 這一列的檔案與行號，用於錯誤訊息。
 
     Returns:
         電價（AUD/MWh）。
@@ -65,16 +75,17 @@ def parse_price_value(price_text: str, interval_end: datetime) -> float:
     Raises:
         ValueError: 不是有限數值時。
     """
+    record_label = f"{record_location}（{interval_end.isoformat()}）"
     try:
         price_value = float(price_text)
     except ValueError as parse_error:
-        raise ValueError(f"{interval_end.isoformat()} 的 {PRICE_FIELD} 不是數字：{price_text}") from parse_error
+        raise ValueError(f"{record_label} 的 {PRICE_FIELD} 不是數字：{price_text}") from parse_error
     if not math.isfinite(price_value):
-        raise ValueError(f"{interval_end.isoformat()} 的 {PRICE_FIELD} 不是有限數值：{price_text}")
+        raise ValueError(f"{record_label} 的 {PRICE_FIELD} 不是有限數值：{price_text}")
     return price_value
 
 
-def merge_interval_prices(price_records: Iterable[Mapping[str, str]], region_id: str) -> dict[datetime, float]:
+def merge_interval_prices(price_records: Iterable[MmsRecord], region_id: str) -> dict[datetime, float]:
     """把多個檔案的 TRADING.PRICE 資料列合併成「時段結束時間 → 電價」，重複的時段去重。
 
     相鄰的期間資料夾會重疊一個月；重疊的值必須相同，否則代表資料有問題，直接停止。
@@ -87,18 +98,22 @@ def merge_interval_prices(price_records: Iterable[Mapping[str, str]], region_id:
         依時段結束時間對應的電價。
 
     Raises:
-        ValueError: 欄位缺漏、電價不是有限數值，或同一時段出現不同電價時。
+        ValueError: 欄位缺漏、電價不是有限數值，或同一時段出現不同電價時；訊息帶檔案與行號，衝突時兩個來源都列出。
     """
-    merged_prices: dict[datetime, float] = {}
+    sourced_prices: dict[datetime, SourcedPrice] = {}
     for price_record in price_records:
         if read_record_field(price_record, REGION_FIELD) != region_id:
             continue
         interval_end = parse_mms_timestamp(read_record_field(price_record, SETTLEMENT_FIELD))
-        price_value = parse_price_value(read_record_field(price_record, PRICE_FIELD), interval_end)
-        existing_price = merged_prices.setdefault(interval_end, price_value)
-        if existing_price != price_value:
-            raise ValueError(f"{interval_end.isoformat()} 出現兩個不同的電價：{existing_price} 與 {price_value}")
-    return merged_prices
+        price_text = read_record_field(price_record, PRICE_FIELD)
+        price_value = parse_price_value(price_text, interval_end, price_record.record_location)
+        existing_price = sourced_prices.setdefault(interval_end, SourcedPrice(price_value, price_record.record_location))
+        if existing_price.price_value != price_value:
+            raise ValueError(
+                f"{interval_end.isoformat()} 出現兩個不同的電價：{existing_price.price_value}（{existing_price.record_location}）"
+                f" 與 {price_value}（{price_record.record_location}）"
+            )
+    return {interval_end: sourced_price.price_value for interval_end, sourced_price in sourced_prices.items()}
 
 
 def average_half_hour_prices(five_minute_prices: Mapping[datetime, float]) -> dict[datetime, float]:
