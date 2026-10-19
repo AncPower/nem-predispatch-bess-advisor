@@ -16,6 +16,8 @@ import highspy
 import numpy as np
 
 POSITIVE_DIRECTION: int = 1
+INTERCEPT_COLUMN: int = 0
+FIRST_COEFFICIENT_COLUMN: int = 1
 NEGATIVE_DIRECTION: int = -1
 
 
@@ -26,6 +28,15 @@ class StandardizedMatrix:
     standardized_values: np.ndarray
     column_means: np.ndarray
     column_standard_deviations: np.ndarray
+
+
+@dataclass(frozen=True)
+class StandardizedTarget:
+    """標準化後的目標，與原本的平均、母體標準差。"""
+
+    standardized_values: np.ndarray
+    target_mean: float
+    target_standard_deviation: float
 
 
 @dataclass(frozen=True)
@@ -96,6 +107,24 @@ def standardize_columns(value_matrix: np.ndarray) -> StandardizedMatrix:
             raise ValueError(f"第 {column_index} 欄所有值相同，無法標準化")
     standardized_values = (column_matrix - column_means) / column_standard_deviations
     return StandardizedMatrix(standardized_values, column_means, column_standard_deviations)
+
+
+def standardize_target(target_values: np.ndarray) -> StandardizedTarget:
+    """把一維目標標準化。
+
+    Args:
+        target_values: 長度 n 的目標。
+
+    Returns:
+        標準化後的目標與其平均、標準差。
+
+    Raises:
+        ValueError: 目標所有值相同時。
+    """
+    standardized_matrix = standardize_columns(target_values)
+    (target_mean,) = standardized_matrix.column_means
+    (target_deviation,) = standardized_matrix.column_standard_deviations
+    return StandardizedTarget(standardized_matrix.standardized_values.ravel(), float(target_mean), float(target_deviation))
 
 
 def compute_directions(standardized_factors: np.ndarray, standardized_target: np.ndarray) -> FactorDirections:
@@ -185,8 +214,9 @@ def solve_l1_nonnegative(design_matrix: np.ndarray, target_values: np.ndarray) -
         ValueError: 列數與目標長度不同時。
         RuntimeError: HiGHS 沒有找到最佳解時，訊息帶求解狀態。
     """
-    if design_matrix.shape[0] != len(target_values):
-        raise ValueError(f"設計矩陣列數 {design_matrix.shape[0]} 與目標長度 {len(target_values)} 不同")
+    row_count, coefficient_count = design_matrix.shape
+    if row_count != len(target_values):
+        raise ValueError(f"設計矩陣列數 {row_count} 與目標長度 {len(target_values)} 不同")
     highs_solver = highspy.Highs()
     highs_solver.setOptionValue("output_flag", False)
     highs_solver.passModel(build_l1_problem(design_matrix, target_values))
@@ -195,8 +225,8 @@ def solve_l1_nonnegative(design_matrix: np.ndarray, target_values: np.ndarray) -
     if model_status != highspy.HighsModelStatus.kOptimal:
         raise RuntimeError(f"HiGHS 求解失敗，狀態為 {highs_solver.modelStatusToString(model_status)}")
     column_values = np.array(highs_solver.getSolution().col_value)
-    coefficient_count = design_matrix.shape[1]
-    return LinearFit(float(column_values[0]), np.clip(column_values[1 : coefficient_count + 1], 0.0, None))
+    coefficient_values = column_values[FIRST_COEFFICIENT_COLUMN : FIRST_COEFFICIENT_COLUMN + coefficient_count]
+    return LinearFit(float(column_values[INTERCEPT_COLUMN]), np.clip(coefficient_values, 0.0, None))
 
 
 def compute_scale(coefficients: np.ndarray) -> float:
@@ -279,15 +309,15 @@ def solve_factor_weights(factor_values: np.ndarray, revenue_values: np.ndarray) 
     if np.any(revenue_values < 0.0):
         raise ValueError("每日收益不得為負，log(1 + 收益) 的前提不成立")
     log_target = np.log1p(revenue_values)
-    standardized_target = standardize_columns(log_target)
-    target_z = standardized_target.standardized_values[:, 0]
+    standardized_target = standardize_target(log_target)
+    target_z = standardized_target.standardized_values
     standardized_factors = standardize_columns(factor_values)
     factor_directions = compute_directions(standardized_factors.standardized_values, target_z)
     signed_factors = standardized_factors.standardized_values * factor_directions.directions
     linear_fit = solve_l1_nonnegative(signed_factors, target_z)
     scale = compute_scale(linear_fit.coefficients)
-    target_mean = float(standardized_target.column_means[0])
-    target_deviation = float(standardized_target.column_standard_deviations[0])
+    target_mean = standardized_target.target_mean
+    target_deviation = standardized_target.target_standard_deviation
     predicted_log = target_mean + target_deviation * (linear_fit.intercept + signed_factors @ linear_fit.coefficients)
     return WeightSolution(
         factor_fits=build_factor_fits(linear_fit, factor_directions, standardized_factors, scale),

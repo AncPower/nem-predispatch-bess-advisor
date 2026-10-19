@@ -12,6 +12,7 @@ from analysis.weight_solver import (
     solve_factor_weights,
     solve_l1_nonnegative,
     standardize_columns,
+    standardize_target,
 )
 
 RANDOM_SEED = 20261019
@@ -39,6 +40,15 @@ def test_standardize_columns_rejects_constant_column() -> None:
     """某欄所有值相同：無法標準化，丟出帶欄號的 ValueError。"""
     with pytest.raises(ValueError, match="第 2 欄"):
         standardize_columns(np.array([[1.0, 5.0], [2.0, 5.0]]))
+
+
+def test_standardize_target_returns_vector_mean_and_deviation() -> None:
+    """一維目標：回傳一維 z 分數與原本的平均、標準差。"""
+    standardized_target = standardize_target(np.array([1.0, 3.0]))
+
+    assert standardized_target.standardized_values.tolist() == [-1.0, 1.0]
+    assert standardized_target.target_mean == 2.0
+    assert standardized_target.target_standard_deviation == 1.0
 
 
 def test_compute_directions_follows_correlation_sign() -> None:
