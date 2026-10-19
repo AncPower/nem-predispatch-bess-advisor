@@ -1,0 +1,12 @@
+{
+  "name": "nem-predispatch-bess-advisor",
+  "private": true,
+  "type": "module",
+  "description": "AEMO 預調度電價與儲能充放電建議（GitHub Pages 靜態網頁）",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
