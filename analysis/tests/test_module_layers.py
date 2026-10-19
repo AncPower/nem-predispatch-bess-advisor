@@ -29,6 +29,7 @@ def read_local_imports(module_name: str) -> list[str]:
 
 
 def test_every_analysis_module_has_a_layer() -> None:
+    """analysis/ 的每個模組都在層級表中登記。"""
     module_names = sorted(
         source_file.stem for source_file in ANALYSIS_DIRECTORY.glob("*.py") if source_file.stem != "__init__"
     )
@@ -37,6 +38,7 @@ def test_every_analysis_module_has_a_layer() -> None:
 
 
 def test_modules_import_only_lower_layers() -> None:
+    """每個模組只匯入層級較低的 analysis 模組。"""
     for module_name, module_layer in MODULE_LAYERS.items():
         for imported_name in read_local_imports(module_name):
             assert MODULE_LAYERS[imported_name] < module_layer, f"{module_name}（L{module_layer}）匯入了 {imported_name}"
