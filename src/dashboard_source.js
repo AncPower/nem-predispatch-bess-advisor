@@ -5,6 +5,7 @@
  * 所以靜態網頁可以直接呼叫。它沒有公開文件與服務保證，格式改變時由 `parse_dashboard_report` 擋下。
  */
 
+import { fetch_json_with_retry } from "./http_request.js";
 import { parse_nem_timestamp } from "./nem_time.js";
 
 export const DASHBOARD_REPORT_URL = "https://visualisations.aemo.com.au/aemo/apps/api/report/5MIN";
@@ -14,14 +15,6 @@ const REPORT_ROWS_KEY = "5MIN";
 const FORECAST_PERIOD_TYPE = "FORECAST";
 const KNOWN_PERIOD_TYPES = new Set(["ACTUAL", FORECAST_PERIOD_TYPE]);
 const REGION_ID_PATTERN = /^[A-Z]{2,3}1$/;
-const DEFAULT_TIMEOUT_MILLISECONDS = 15_000;
-const MAXIMUM_ATTEMPT_COUNT = 3;
-const RETRY_BASE_DELAY_MILLISECONDS = 2_000;
-const HTTP_TOO_MANY_REQUESTS = 429;
-const HTTP_SERVER_ERROR_MINIMUM = 500;
-
-/** 可重試的錯誤：逾時、網路中斷、HTTP 429 與 5xx。 */
-export class TransientFetchError extends Error {}
 
 /**
  * @typedef {{interval_end_minute: number, price: number}} PricePoint
@@ -29,59 +22,17 @@ export class TransientFetchError extends Error {}
  */
 
 /**
- * 呼叫儀表板 API，遇到可重試的錯誤以指數退避重試。
+ * 呼叫儀表板 API，遇到暫時性錯誤退避重試（見 `http_request.fetch_json_with_retry`）。
  *
- * @param {object} [request_options]
- * @param {typeof fetch} [request_options.fetch_function] 預設為瀏覽器的 fetch
- * @param {(milliseconds: number) => Promise<void>} [request_options.sleep_function] 退避等待
- * @param {number} [request_options.timeout_milliseconds] 單次請求逾時
- * @returns {Promise<unknown>} 原始 JSON
- * @throws {Error} 重試用盡或遇到不可重試的錯誤
- */
-export async function fetch_dashboard_report(request_options = {}) {
-  const fetch_function = request_options.fetch_function ?? globalThis.fetch.bind(globalThis);
-  const sleep_function = request_options.sleep_function ?? wait_milliseconds;
-  const timeout_milliseconds = request_options.timeout_milliseconds ?? DEFAULT_TIMEOUT_MILLISECONDS;
-  for (let attempt_number = 1; ; attempt_number++) {
-    try {
-      return await request_dashboard_once(fetch_function, timeout_milliseconds);
-    } catch (request_error) {
-      const is_last_attempt = attempt_number >= MAXIMUM_ATTEMPT_COUNT;
-      if (!(request_error instanceof TransientFetchError) || is_last_attempt) throw request_error;
-      await sleep_function(RETRY_BASE_DELAY_MILLISECONDS * 2 ** (attempt_number - 1));
-    }
-  }
-}
-
-/**
- * 單次請求，並把網路層錯誤分成可重試與不可重試。
- *
- * @param {typeof fetch} fetch_function fetch 實作
- * @param {number} timeout_milliseconds 逾時
+ * @param {Partial<import("./http_request.js").RequestOptions>} [request_options] 可替換的 fetch、等待與逾時
  * @returns {Promise<unknown>} 原始 JSON
  */
-async function request_dashboard_once(fetch_function, timeout_milliseconds) {
-  const abort_controller = new AbortController();
-  const timeout_handle = setTimeout(() => abort_controller.abort(), timeout_milliseconds);
-  let http_response;
-  try {
-    http_response = await fetch_function(DASHBOARD_REPORT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: DASHBOARD_REQUEST_BODY,
-      cache: "no-store",
-      signal: abort_controller.signal,
-    });
-  } catch (network_error) {
-    throw new TransientFetchError(`連線 AEMO 儀表板 API 失敗：${network_error.message}`, { cause: network_error });
-  } finally {
-    clearTimeout(timeout_handle);
-  }
-  if (http_response.status === HTTP_TOO_MANY_REQUESTS || http_response.status >= HTTP_SERVER_ERROR_MINIMUM) {
-    throw new TransientFetchError(`AEMO 儀表板 API 回應 HTTP ${http_response.status}`);
-  }
-  if (!http_response.ok) throw new Error(`AEMO 儀表板 API 回應 HTTP ${http_response.status}`);
-  return http_response.json();
+export function fetch_dashboard_report(request_options = {}) {
+  return fetch_json_with_retry(
+    DASHBOARD_REPORT_URL,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: DASHBOARD_REQUEST_BODY, cache: "no-store" },
+    { source_label: "AEMO 儀表板 API", ...request_options },
+  );
 }
 
 /**
@@ -131,14 +82,4 @@ function validate_report_row(report_row, row_index) {
     period_type: report_row.PERIODTYPE,
     price_point: { interval_end_minute, price: report_row.RRP },
   };
-}
-
-/**
- * 等待指定毫秒。
- *
- * @param {number} milliseconds 等待時間
- * @returns {Promise<void>}
- */
-function wait_milliseconds(milliseconds) {
-  return new Promise((resolve_wait) => setTimeout(resolve_wait, milliseconds));
 }

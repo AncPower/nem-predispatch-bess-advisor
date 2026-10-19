@@ -5,22 +5,12 @@
  */
 
 import { format_nem_label, interval_start_minute } from "./nem_time.js";
+import { format_number } from "./number_format.js";
 
 const CHART_VALUE_PADDING = 10;
 const PRICE_DATASET_INDEX = 4;
 const SWEEP_MAXIMUM_TICKS = 9;
 const PRICE_MAXIMUM_TICKS = 10;
-
-/**
- * 數字加千分位。
- *
- * @param {number} numeric_value 數值
- * @param {number} [decimal_places] 小數位數
- * @returns {string} 格式化後的字串
- */
-export function format_number(numeric_value, decimal_places = 0) {
-  return Number(numeric_value).toLocaleString("zh-TW", { maximumFractionDigits: decimal_places, minimumFractionDigits: decimal_places });
-}
 
 /**
  * 澳幣金額，負數以「−」開頭。
