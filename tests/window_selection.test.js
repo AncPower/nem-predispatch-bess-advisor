@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { simulate_threshold_dispatch } from "../src/threshold_dispatch.js";
 import { segment_length_for, select_best_plan, suggest_price_thresholds } from "../src/window_selection.js";
 
 const FOUR_HOUR_BATTERY = Object.freeze({ power_mw: 5, capacity_mwh: 20, marginal_loss_factor: 1 });
@@ -201,4 +202,36 @@ test("select_best_plan: 隨機電價下與暴力解的最佳總價差相同", ()
     const expected_score = brute_force_best_score(price_values, 2, minimum_cycle_spread);
     assert.equal(plan_result.total_value, expected_score, `case ${case_index}: ${price_values}`);
   }
+});
+
+test("suggest_price_thresholds: 小數電價時充電上限進位、放電下限捨去", () => {
+  const price_values = [57.4, 68.3, 299.98, 367.2];
+  const two_interval_battery = { power_mw: 2, capacity_mwh: 2, marginal_loss_factor: 1 };
+  const plan_result = select_best_plan(price_values, two_interval_battery);
+
+  const price_thresholds = suggest_price_thresholds(price_values, plan_result);
+
+  assert.deepEqual(price_thresholds, { charge_price_cap: 69, price_spread: 230 });
+});
+
+test("suggest_price_thresholds: 用建議門檻模擬時，充滿與放完的時段正好是主循環的窗", () => {
+  const price_values = [
+    120, 118, 64.0, 61.1, 60.9, 57.4, 57.4, 57.4, 61.4, 68.3, 75, 90,
+    367.2, 299.98, 299.95, 599.0, 495.4, 323.8, 302.1, 494.3, 240, 290,
+  ];
+  const plan_result = select_best_plan(price_values, { ...FOUR_HOUR_BATTERY });
+  const main_cycle = plan_result.cycles.reduce((best_cycle, planned_cycle) => (planned_cycle.net_value > best_cycle.net_value ? planned_cycle : best_cycle));
+  const price_thresholds = suggest_price_thresholds(price_values, plan_result);
+
+  const dispatch_result = simulate_threshold_dispatch(price_values, { ...FOUR_HOUR_BATTERY, initial_soc_fraction: 0 }, {
+    charge_price_cap: price_thresholds.charge_price_cap,
+    discharge_price_floor: price_thresholds.charge_price_cap + price_thresholds.price_spread,
+  });
+
+  const charge_indexes = dispatch_result.interval_energy_mwh.flatMap((energy_change, interval_index) => (energy_change > 0 ? [interval_index] : []));
+  const discharge_indexes = dispatch_result.interval_energy_mwh.flatMap((energy_change, interval_index) => (energy_change < 0 ? [interval_index] : []));
+  const window_indexes = (start_index) => Array.from({ length: plan_result.segment_length }, (_unused, offset) => start_index + offset);
+  assert.deepEqual(charge_indexes, window_indexes(main_cycle.charge_start_index));
+  assert.deepEqual(discharge_indexes, window_indexes(main_cycle.discharge_start_index));
+  assert.equal(dispatch_result.final_soc_fraction, 0);
 });

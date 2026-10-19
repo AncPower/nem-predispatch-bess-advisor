@@ -183,22 +183,24 @@ function build_cycle(candidate_cycle, segment_sums, segment_length, energy_mwh, 
 }
 
 /**
- * 由建議計畫推出自訂價格的預設值：取淨收益最高的循環，充電上限為其充電段最高價，價差為其放電段最低價減充電上限。
- * 沒有建議循環時，充電上限取最低價、價差設成讓放電下限高於最高價（等於不放電）。
+ * 由建議計畫推出自訂價格的預設值：取淨收益最高的循環，充電上限為其充電段最高價（無條件進位），
+ * 放電下限為其放電段最低價（無條件捨去），價差為兩者之差。取整的方向確保窗內每個時段都落在門檻內，
+ * 用這組門檻模擬時會充滿、放完同一個窗。
+ * 沒有建議循環時，充電上限取最低價（無條件捨去）、放電下限高於最高價（等於不放電）。
  *
  * @param {number[]} price_values 依時間排序的電價
  * @param {{segment_length: number, cycles: PlannedCycle[]}} plan_result `select_best_plan` 的結果
- * @returns {{charge_price_cap: number, price_spread: number}} 建議的充電上限與價差（四捨五入到整數）
+ * @returns {{charge_price_cap: number, price_spread: number}} 建議的充電上限與價差（整數）
  */
 export function suggest_price_thresholds(price_values, plan_result) {
   if (price_values.length === 0) return { charge_price_cap: 0, price_spread: 0 };
   if (plan_result.cycles.length === 0) {
-    const lowest_price = Math.min(...price_values);
-    return { charge_price_cap: Math.round(lowest_price), price_spread: Math.round(Math.max(...price_values) - lowest_price + 1) };
+    const charge_price_cap = Math.floor(Math.min(...price_values));
+    return { charge_price_cap, price_spread: Math.floor(Math.max(...price_values)) - charge_price_cap + 1 };
   }
   const main_cycle = plan_result.cycles.reduce((best_cycle, planned_cycle) => (planned_cycle.net_value > best_cycle.net_value ? planned_cycle : best_cycle));
   const window_prices = (start_index) => price_values.slice(start_index, start_index + plan_result.segment_length);
-  const charge_price_cap = Math.max(...window_prices(main_cycle.charge_start_index));
-  const discharge_price_floor = Math.min(...window_prices(main_cycle.discharge_start_index));
-  return { charge_price_cap: Math.round(charge_price_cap), price_spread: Math.round(Math.max(0, discharge_price_floor - charge_price_cap)) };
+  const charge_price_cap = Math.ceil(Math.max(...window_prices(main_cycle.charge_start_index)));
+  const discharge_price_floor = Math.floor(Math.min(...window_prices(main_cycle.discharge_start_index)));
+  return { charge_price_cap, price_spread: Math.max(0, discharge_price_floor - charge_price_cap) };
 }
