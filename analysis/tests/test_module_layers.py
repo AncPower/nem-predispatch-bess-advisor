@@ -19,6 +19,7 @@ MODULE_LAYERS: dict[str, int] = {
     "weight_solver": 1,
     "daily_revenue": 2,
     "factor_dataset": 3,
+    "factor_weights_report": 4,
 }
 
 
