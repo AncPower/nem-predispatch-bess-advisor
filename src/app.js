@@ -122,6 +122,16 @@ function read_battery_inputs() {
   };
 }
 
+/**
+ * 讀取每循環最低價差，空白或負數視為 0。
+ *
+ * @returns {number} 每循環最低價差（AUD/MWh）
+ */
+function read_minimum_cycle_spread() {
+  const input_value = Number.parseFloat(element_by_id("minimum_spread_input").value);
+  return Number.isFinite(input_value) ? Math.max(0, input_value) : 0;
+}
+
 /** 對目前選的區域重算建議計畫並更新畫面。 */
 function analyse_region() {
   const region_id = element_by_id("region_select").value;
@@ -132,7 +142,7 @@ function analyse_region() {
   }
   const price_values = price_points.map((price_point) => price_point.price);
   page_state.price_points = price_points;
-  page_state.plan_result = select_best_plan(price_values, read_battery_inputs());
+  page_state.plan_result = select_best_plan(price_values, read_battery_inputs(), read_minimum_cycle_spread());
   set_status(`${page_state.origin_text}。`);
   element_by_id("empty_card").hidden = true;
   RESULT_CARD_IDS.forEach((card_id) => { element_by_id(card_id).hidden = false; });
@@ -306,7 +316,7 @@ function wire_source_and_battery_inputs() {
     page_state.thresholds_adjusted = false;
     if (page_state.region_forecasts) analyse_region();
   });
-  for (const input_id of ["power_input", "capacity_input", "loss_factor_input"]) {
+  for (const input_id of ["power_input", "capacity_input", "loss_factor_input", "minimum_spread_input"]) {
     element_by_id(input_id).addEventListener("input", () => { if (page_state.region_forecasts) analyse_region(); });
   }
   element_by_id("soc_input").addEventListener("input", update_dispatch_view);

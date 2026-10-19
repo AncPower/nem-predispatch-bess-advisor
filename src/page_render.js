@@ -51,7 +51,7 @@ function read_css_token(token_name) {
  */
 export function render_plan_steps(plan_container, plan_result, price_points) {
   if (plan_result.cycles.length === 0) {
-    plan_container.innerHTML = `<div class="step d"><div class="t">建議</div><div class="v">預測期間內不建議充放電</div><div class="s">沒有任何一組充放電的放電均價高於充電均價。</div></div>`;
+    plan_container.innerHTML = `<div class="step d"><div class="t">建議</div><div class="v">預測期間內不建議充放電</div><div class="s">沒有任何一組充放電的價差為正，且不低於每循環最低價差。</div></div>`;
     return;
   }
   plan_container.innerHTML = plan_result.cycles
