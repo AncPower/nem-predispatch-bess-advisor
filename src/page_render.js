@@ -63,8 +63,8 @@ function build_cycle_html(planned_cycle, cycle_index, plan_result, price_points)
   const charge_window = describe_window(price_points, planned_cycle.charge_start_index, plan_result.segment_length);
   const discharge_window = describe_window(price_points, planned_cycle.discharge_start_index, plan_result.segment_length);
   const price_spread = planned_cycle.discharge_average_price - planned_cycle.charge_average_price;
-  return `<div class="step"><div class="t">第 ${cycle_number} 次｜開始充電</div><div class="v">${charge_window.start_label}</div><div class="s">至 ${charge_window.end_label}，均價 ${format_aud(planned_cycle.charge_average_price)}；建議充電價格上限 ${format_aud(charge_window.highest_price)}</div></div>
-    <div class="step d"><div class="t">第 ${cycle_number} 次｜開始放電</div><div class="v">${discharge_window.start_label}</div><div class="s">至 ${discharge_window.end_label}，均價 ${format_aud(planned_cycle.discharge_average_price)}；建議放電價格下限 ${format_aud(discharge_window.lowest_price)}</div></div>
+  return `<div class="step"><div class="t">第 ${cycle_number} 次｜開始充電</div><div class="v">${charge_window.start_label}</div><div class="s">至 ${charge_window.end_label}，均價 ${format_aud(planned_cycle.charge_average_price)}；建議充電價格上限 ${format_aud(Math.ceil(charge_window.highest_price))}</div></div>
+    <div class="step d"><div class="t">第 ${cycle_number} 次｜開始放電</div><div class="v">${discharge_window.start_label}</div><div class="s">至 ${discharge_window.end_label}，均價 ${format_aud(planned_cycle.discharge_average_price)}；建議放電價格下限 ${format_aud(Math.floor(discharge_window.lowest_price))}</div></div>
     <div class="step" style="border-left-color:var(--ink-3)"><div class="t">第 ${cycle_number} 次｜預估淨收益</div><div class="v">${format_aud(planned_cycle.net_value)}</div><div class="s">價差 ${format_aud(price_spread)}/MWh，放電 ${format_number(plan_result.energy_mwh, 1)} MWh</div></div>`;
 }
 
@@ -121,7 +121,7 @@ export function draw_price_chart(chart_canvas, previous_chart, chart_input) {
   const action_bars = (direction_sign, bar_color) => ({
     type: "bar",
     data: chart_input.interval_energy_mwh.map((energy_change) => (direction_sign * energy_change > 0 ? [Math.min(0, axis_minimum), axis_maximum] : null)),
-    backgroundColor: bar_color, barPercentage: 1, categoryPercentage: 1, order: 3,
+    backgroundColor: bar_color, barPercentage: 1, categoryPercentage: 1, grouped: false, inflateAmount: 0, order: 3,
   });
   const threshold_line = (threshold_value, line_color) => ({
     data: price_values.map(() => threshold_value), borderColor: line_color, borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, order: 2,
