@@ -4,7 +4,6 @@
 - 每個交易日各自從空電池開始，計畫不跨過午夜；一天不足 48 段就不算收益，列為不完整。
 """
 
-import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -20,7 +19,9 @@ from analysis.nem_day import (
     parse_mms_timestamp,
     trading_date_for,
 )
+from analysis.record_fields import parse_finite_field, read_record_field
 
+PRICE_TABLE_LABEL: str = "TRADING.PRICE"
 SETTLEMENT_FIELD: str = "SETTLEMENTDATE"
 REGION_FIELD: str = "REGIONID"
 PRICE_FIELD: str = "RRP"
@@ -42,49 +43,6 @@ class SourcedPrice:
     record_location: str
 
 
-def read_record_field(price_record: MmsRecord, field_name: str) -> str:
-    """取出資料列的欄位值。
-
-    Args:
-        price_record: TRADING.PRICE 的一列。
-        field_name: 欄名。
-
-    Returns:
-        欄位字串。
-
-    Raises:
-        ValueError: 沒有這個欄位時，訊息帶檔案與行號。
-    """
-    field_value = price_record.field_values.get(field_name)
-    if field_value is None:
-        raise ValueError(f"{price_record.record_location}：TRADING.PRICE 資料列缺少欄位 {field_name}")
-    return field_value
-
-
-def parse_price_value(price_text: str, interval_end: datetime, record_location: str) -> float:
-    """把 RRP 字串轉成有限浮點數。
-
-    Args:
-        price_text: RRP 欄的字串。
-        interval_end: 時段結束時間，用於錯誤訊息。
-        record_location: 這一列的檔案與行號，用於錯誤訊息。
-
-    Returns:
-        電價（AUD/MWh）。
-
-    Raises:
-        ValueError: 不是有限數值時。
-    """
-    record_label = f"{record_location}（{interval_end.isoformat()}）"
-    try:
-        price_value = float(price_text)
-    except ValueError as parse_error:
-        raise ValueError(f"{record_label} 的 {PRICE_FIELD} 不是數字：{price_text}") from parse_error
-    if not math.isfinite(price_value):
-        raise ValueError(f"{record_label} 的 {PRICE_FIELD} 不是有限數值：{price_text}")
-    return price_value
-
-
 def merge_interval_prices(price_records: Iterable[MmsRecord], region_id: str) -> dict[datetime, float]:
     """把多個檔案的 TRADING.PRICE 資料列合併成「時段結束時間 → 電價」，重複的時段去重。
 
@@ -102,11 +60,12 @@ def merge_interval_prices(price_records: Iterable[MmsRecord], region_id: str) ->
     """
     sourced_prices: dict[datetime, SourcedPrice] = {}
     for price_record in price_records:
-        if read_record_field(price_record, REGION_FIELD) != region_id:
+        field_values = price_record.field_values
+        record_location = f"{price_record.record_location}：{PRICE_TABLE_LABEL}"
+        if read_record_field(field_values, REGION_FIELD, record_location) != region_id:
             continue
-        interval_end = parse_mms_timestamp(read_record_field(price_record, SETTLEMENT_FIELD))
-        price_text = read_record_field(price_record, PRICE_FIELD)
-        price_value = parse_price_value(price_text, interval_end, price_record.record_location)
+        interval_end = parse_mms_timestamp(read_record_field(field_values, SETTLEMENT_FIELD, record_location))
+        price_value = parse_finite_field(field_values, PRICE_FIELD, f"{record_location}（{interval_end.isoformat()}）")
         existing_price = sourced_prices.setdefault(interval_end, SourcedPrice(price_value, price_record.record_location))
         if existing_price.price_value != price_value:
             raise ValueError(

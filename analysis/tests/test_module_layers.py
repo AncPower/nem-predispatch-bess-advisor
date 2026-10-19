@@ -11,6 +11,7 @@ PACKAGE_PREFIX: str = "analysis."
 MODULE_LAYERS: dict[str, int] = {
     "nem_day": 0,
     "mms_csv": 0,
+    "record_fields": 0,
     "arbitrage_plan": 1,
     "daily_revenue": 2,
 }

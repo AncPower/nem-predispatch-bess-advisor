@@ -70,7 +70,7 @@ def test_merge_interval_prices_rejects_non_finite_price() -> None:
 
 def test_merge_interval_prices_rejects_text_price_with_timestamp() -> None:
     """RRP 不是數字：丟出帶來源位置、時段時間與原字串的 ValueError。"""
-    with pytest.raises(ValueError, match="測試檔 第 2 行（2025-04-10T00:05:00）.*abc"):
+    with pytest.raises(ValueError, match="測試檔 第 2 行.*2025-04-10T00:05:00.*abc"):
         merge_interval_prices([build_price_record("2025/04/10 00:05:00", "abc")], "NSW1")
 
 
