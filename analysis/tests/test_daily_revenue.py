@@ -69,13 +69,13 @@ def test_merge_interval_prices_rejects_missing_field() -> None:
 
 
 def test_average_half_hour_prices_averages_six_five_minute_prices() -> None:
-    five_minute_prices = {FIRST_DAY_START + step * FIVE_MINUTE_INTERVAL: float(step) for step in range(1, 7)}
+    five_minute_prices = {FIRST_DAY_START + step_index * FIVE_MINUTE_INTERVAL: float(step_index) for step_index in range(1, 7)}
 
     assert average_half_hour_prices(five_minute_prices) == {FIRST_DAY_START + HALF_HOUR_INTERVAL: 3.5}
 
 
 def test_average_half_hour_prices_drops_incomplete_half_hour() -> None:
-    five_minute_prices = {FIRST_DAY_START + step * FIVE_MINUTE_INTERVAL: 10.0 for step in range(1, 6)}
+    five_minute_prices = {FIRST_DAY_START + step_index * FIVE_MINUTE_INTERVAL: 10.0 for step_index in range(1, 6)}
 
     assert average_half_hour_prices(five_minute_prices) == {}
 

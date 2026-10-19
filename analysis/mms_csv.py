@@ -11,8 +11,11 @@ from pathlib import Path
 
 INFORMATION_RECORD: str = "I"
 DATA_RECORD: str = "D"
+RECORD_TYPE_INDEX: int = 0
+GROUP_NAME_INDEX: int = 1
+TABLE_NAME_INDEX: int = 2
 FIRST_FIELD_INDEX: int = 4
-MINIMUM_ROW_LENGTH: int = 3
+MINIMUM_ROW_LENGTH: int = TABLE_NAME_INDEX + 1
 
 
 @dataclass(frozen=True)
@@ -31,7 +34,9 @@ class MmsTableName:
         Returns:
             第 2、3 欄等於本表的群組與表名時為 True。
         """
-        return len(csv_row) >= MINIMUM_ROW_LENGTH and (csv_row[1], csv_row[2]) == (self.group_name, self.table_name)
+        if len(csv_row) < MINIMUM_ROW_LENGTH:
+            return False
+        return csv_row[GROUP_NAME_INDEX] == self.group_name and csv_row[TABLE_NAME_INDEX] == self.table_name
 
 
 def parse_mms_records(
@@ -54,9 +59,9 @@ def parse_mms_records(
     for line_number, csv_row in enumerate(csv_rows, start=1):
         if not table_name.matches_row(csv_row):
             continue
-        if csv_row[0] == INFORMATION_RECORD:
+        if csv_row[RECORD_TYPE_INDEX] == INFORMATION_RECORD:
             column_names = tuple(csv_row[FIRST_FIELD_INDEX:])
-        elif csv_row[0] == DATA_RECORD:
+        elif csv_row[RECORD_TYPE_INDEX] == DATA_RECORD:
             yield build_data_record(csv_row, column_names, f"{source_label} 第 {line_number} 列")
 
 

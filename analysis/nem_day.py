@@ -60,10 +60,10 @@ def half_hour_end_for(five_minute_end: datetime) -> datetime:
     Raises:
         ValueError: 時間沒有對齊 5 分鐘時。
     """
-    day_start = datetime.combine(five_minute_end.date(), time())
-    if (five_minute_end - day_start) % FIVE_MINUTE_INTERVAL:
+    end_midnight = datetime.combine(five_minute_end.date(), time())
+    if (five_minute_end - end_midnight) % FIVE_MINUTE_INTERVAL:
         raise ValueError(f"時段結束時間沒有對齊 5 分鐘：{five_minute_end.isoformat()}")
     interval_start = five_minute_end - FIVE_MINUTE_INTERVAL
-    start_day = datetime.combine(interval_start.date(), time())
-    half_hour_index = (interval_start - start_day) // HALF_HOUR_INTERVAL
-    return start_day + (half_hour_index + 1) * HALF_HOUR_INTERVAL
+    start_midnight = datetime.combine(interval_start.date(), time())
+    half_hour_index = (interval_start - start_midnight) // HALF_HOUR_INTERVAL
+    return start_midnight + (half_hour_index + 1) * HALF_HOUR_INTERVAL

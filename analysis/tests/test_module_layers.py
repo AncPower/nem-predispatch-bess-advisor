@@ -25,7 +25,7 @@ def read_local_imports(module_name: str) -> list[str]:
             imported_names.append(syntax_node.module)
         elif isinstance(syntax_node, ast.Import):
             imported_names.extend(alias_node.name for alias_node in syntax_node.names)
-    return [name.removeprefix(PACKAGE_PREFIX) for name in imported_names if name.startswith(PACKAGE_PREFIX)]
+    return [imported_name.removeprefix(PACKAGE_PREFIX) for imported_name in imported_names if imported_name.startswith(PACKAGE_PREFIX)]
 
 
 def test_every_analysis_module_has_a_layer() -> None:

@@ -24,7 +24,7 @@ def test_fixture_has_cases() -> None:
     assert len(FIXTURE_CASES) > 0
 
 
-@pytest.mark.parametrize("fixture_case", FIXTURE_CASES, ids=[case["case_name"] for case in FIXTURE_CASES])
+@pytest.mark.parametrize("fixture_case", FIXTURE_CASES, ids=[fixture_case["case_name"] for fixture_case in FIXTURE_CASES])
 def test_select_best_plan_matches_javascript_fixture(fixture_case: dict[str, Any]) -> None:
     battery_specification = BatterySpecification(**fixture_case["battery_specification"])
 
