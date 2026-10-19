@@ -7,6 +7,7 @@
 
 export const INTERVAL_MINUTES = 30;
 export const INTERVAL_HOURS = INTERVAL_MINUTES / 60;
+export const MINUTES_PER_DAY = 24 * 60;
 
 const MILLISECONDS_PER_MINUTE = 60_000;
 const NEM_TIMESTAMP_PATTERN =
@@ -43,6 +44,16 @@ export function format_nem_label(epoch_minute) {
   const nem_date = new Date(epoch_minute * MILLISECONDS_PER_MINUTE);
   const pad_two = (value) => String(value).padStart(2, "0");
   return `${pad_two(nem_date.getUTCMonth() + 1)}/${pad_two(nem_date.getUTCDate())} ${pad_two(nem_date.getUTCHours())}:${pad_two(nem_date.getUTCMinutes())}`;
+}
+
+/**
+ * 時段結束時間是否為 NEM 日的結束（24:00，也就是次日 00:00）。
+ *
+ * @param {number} interval_end_minute 時段結束的 epoch 分鐘
+ * @returns {boolean} 是否為日結束
+ */
+export function is_nem_day_end(interval_end_minute) {
+  return interval_end_minute % MINUTES_PER_DAY === 0;
 }
 
 /**

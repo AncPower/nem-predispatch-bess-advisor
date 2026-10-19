@@ -5,7 +5,7 @@
 import { fetch_dashboard_report, parse_dashboard_report } from "./dashboard_source.js";
 import { format_nem_label, interval_start_minute } from "./nem_time.js";
 import { draw_price_chart, draw_sweep_chart, format_aud, render_kpi_row, render_plan_steps } from "./page_render.js";
-import { simulate_threshold_dispatch } from "./threshold_dispatch.js";
+import { find_remaining_energy_markers, simulate_threshold_dispatch } from "./threshold_dispatch.js";
 import { parse_predispatch_csv } from "./upload_parser.js";
 import { select_best_plan, suggest_price_thresholds } from "./window_selection.js";
 
@@ -215,6 +215,7 @@ function update_dispatch_view() {
     interval_energy_mwh: dispatch_result.interval_energy_mwh,
     charge_price_cap,
     discharge_price_floor,
+    remaining_markers: find_remaining_energy_markers(page_state.price_points, dispatch_result.stored_energy_mwh, battery_spec.capacity_mwh),
   });
   const sweep_points = build_sweep_points(price_values, battery_spec, charge_price_cap, price_spread);
   page_state.sweep_chart = draw_sweep_chart(element_by_id("sweep_chart"), page_state.sweep_chart, sweep_points, price_spread);

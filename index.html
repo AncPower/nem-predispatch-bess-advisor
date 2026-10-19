@@ -68,6 +68,7 @@
 <span><i class="sw" style="background:var(--discharge-soft);border:1px solid var(--discharge)"></i>自訂條件下放電</span>
 <span><i class="sw" style="border-top:2px dashed var(--charge);height:0"></i>充電上限</span>
 <span><i class="sw" style="border-top:2px dashed var(--discharge);height:0"></i>放電下限</span>
+<span><i class="sw" style="border-left:1px dashed var(--ink-3);width:0;height:12px"></i>剩餘電量（當日結束、預測期末仍有電時標示）</span>
 </div>
 <div class="chart"><canvas id="price_chart" role="img" aria-label="預調度電價與充放電區間"></canvas></div>
 </section>
@@ -102,6 +103,7 @@
 <li>時間為 NEM 市場時間（UTC+10，不調整夏令時間），每個時段以結束時間標記；台灣時間＝NEM 時間 − 2 小時。</li>
 <li>建議計畫：每段長度＝容量 ÷ 功率，連續、滿功率。一個循環是「充、放」兩段，兩個循環是「充、放、充、放」四段一起選，取放電段總價減充電段總價最大的組合；不會因為先挑了最賺的一組，就漏掉排在它前面的另一組。每個循環的價差必須為正，且不低於「每循環最低價差」。同分時取最早的組合，一個與兩個循環同分時取一個，沒有任何組合符合時不排。</li>
 <li>搜尋範圍是整個預測期間，可以跨過午夜（例如今晚充、明早放）。</li>
+<li>電價圖上的充放電區間與剩餘電量都是「自訂充放電價格」的模擬結果。每個 NEM 日結束（24:00）與預測期末，若電池內仍有電，會以虛線標示剩餘電量（MWh 與占容量的百分比）。</li>
 <li>收益＝放電量 × 電價 × MLF − 充電量 × 電價 × MLF；來回效率固定 100%，不計電池損耗、FCAS、網路費與合約收入。</li>
 </ul>
 </section>
