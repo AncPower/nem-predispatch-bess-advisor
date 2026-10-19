@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AEMO 預調度充放電建議</title>
+<meta name="description" content="自動讀取 AEMO 30 分鐘預調度電價，找出接下來最划算的儲能充放電時段與預估收益。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>AEMO 預調度電價與儲能充放電建議</h1>
+<p>自動讀取 AEMO 最新的 30 分鐘預調度（Pre-dispatch）區域電價，找出接下來最划算的充電與放電時段，給出建議價格與預估收益；也可以自行調整充電價格上限與高低價差，看收益如何變化。資料從哪裡來、多久更新一次，寫在頁面下方的「資料來源與更新方式」。</p>
+</header>
+<div class="grid">
+<aside class="panel controls" aria-label="資料與參數">
+<h2>1. 預調度資料</h2>
+<div class="status" id="source_status" aria-live="polite">正在連線 AEMO…</div>
+<div class="button-row">
+<button class="btn" id="refresh_button" type="button">立即更新</button>
+<label class="inline-check"><input type="checkbox" id="auto_refresh" checked>每 5 分鐘自動更新</label>
+</div>
+<details class="fallback">
+<summary>自動讀取失敗時：手動上傳</summary>
+<p class="hint">到 <a href="https://nemweb.com.au/Reports/Current/PredispatchIS_Reports/" target="_blank" rel="noopener">NEMWeb 預調度目錄</a> 下載最新的 PUBLIC_PREDISPATCHIS_…zip，拖曳到下方。上傳後會暫停自動更新，以免覆蓋你上傳的資料。</p>
+<div class="drop" id="drop_zone" tabindex="0" role="button" aria-label="上傳 AEMO 預調度 ZIP 或 CSV">拖曳或點選上傳 ZIP／CSV</div>
+<input type="file" id="file_input" accept=".zip,.csv,.CSV,.ZIP" hidden>
+</details>
+<h2>2. 區域與設備</h2>
+<div class="field"><label for="region_select">NEM 區域</label>
+<select id="region_select"><option value="NSW1">新南威爾斯 NSW1</option><option value="QLD1">昆士蘭 QLD1</option><option value="VIC1">維多利亞 VIC1</option><option value="SA1">南澳 SA1</option><option value="TAS1">塔斯馬尼亞 TAS1</option></select></div>
+<div class="row2">
+<div class="field"><label for="power_input">功率 MW</label><input type="number" id="power_input" value="5" min="0.1" step="0.1"></div>
+<div class="field"><label for="capacity_input">容量 MWh</label><input type="number" id="capacity_input" value="20" min="0.1" step="0.1"></div>
+<div class="field"><label for="loss_factor_input">損失係數 MLF</label><input type="number" id="loss_factor_input" value="1.00" step="0.01" min="0.5" max="1.2"></div>
+<div class="field"><label for="soc_input">目前電量 %</label><input type="number" id="soc_input" value="0" min="0" max="100"></div>
+</div>
+<p class="hint">來回效率固定 100%，不計電池損耗。「目前電量」只用在下方自訂價格的試算；建議計畫一律假設從空電池開始。</p>
+<h2>3. 自訂充放電價格</h2>
+<p class="hint">預設帶入建議值。調整後，電價低於充電上限就充電，高於放電下限就放電。</p>
+<div class="field"><label for="charge_cap_range"><span>充電價格上限</span><span>AUD/MWh</span></label>
+<div class="slider"><input type="range" id="charge_cap_range" min="-1000" max="1000" step="1" value="0"><input type="number" id="charge_cap_number" value="0" aria-label="充電價格上限"></div></div>
+<div class="field"><label for="spread_range"><span>高低價差</span><span>AUD/MWh</span></label>
+<div class="slider"><input type="range" id="spread_range" min="0" max="1000" step="1" value="80"><input type="number" id="spread_number" value="80" aria-label="高低價差"></div></div>
+<p class="hint" id="discharge_floor_text"></p>
+<button class="btn" id="reset_thresholds" type="button">套用建議值</button>
+</aside>
+<main class="main">
+<section class="panel" id="empty_card"><div class="empty">正在讀取 AEMO 預調度電價…</div></section>
+<section class="panel" id="plan_card" hidden>
+<h3>建議充放電計畫</h3>
+<p class="sub" id="plan_subtitle"></p>
+<div class="plan" id="plan_steps"></div>
+</section>
+<section class="kpis" id="kpi_row" hidden></section>
+<section class="panel" id="price_chart_card" hidden>
+<h3>預調度區域電價</h3>
+<p class="sub">橫軸為各時段開始時間（NEM 時間）</p>
+<div class="legend">
+<span><i class="sw" style="background:var(--line);height:3px"></i>預調度電價</span>
+<span><i class="sw" style="background:var(--charge-soft);border:1px solid var(--charge)"></i>自訂條件下充電</span>
+<span><i class="sw" style="background:var(--discharge-soft);border:1px solid var(--discharge)"></i>自訂條件下放電</span>
+<span><i class="sw" style="border-top:2px dashed var(--charge);height:0"></i>充電上限</span>
+<span><i class="sw" style="border-top:2px dashed var(--discharge);height:0"></i>放電下限</span>
+</div>
+<div class="chart"><canvas id="price_chart" role="img" aria-label="預調度電價與充放電區間"></canvas></div>
+</section>
+<section class="panel" id="sweep_chart_card" hidden>
+<h3>高低價差與預估收益</h3>
+<p class="sub">充電上限固定為目前設定，只改變價差時的預估淨收益。價差太小會在小幅波動時頻繁進出，太大則可能整段都不放電。</p>
+<div class="chart sm"><canvas id="sweep_chart" role="img" aria-label="不同價差下的預估收益"></canvas></div>
+</section>
+<section class="panel note" id="source_notes">
+<h3>資料來源與更新方式</h3>
+<div class="table-wrap">
+<table class="source-table">
+<thead><tr><th>項目</th><th>說明</th></tr></thead>
+<tbody>
+<tr><th scope="row">自動讀取的來源</th><td>AEMO 官網 NEM 資料儀表板（Data Dashboard）背後的 API：<code>POST https://visualisations.aemo.com.au/aemo/apps/api/report/5MIN</code>，請求內容 <code>{"timeScale":["30MIN"]}</code>。本頁只取其中的預測列（PERIODTYPE = FORECAST），五個區域都在同一份回應裡。</td></tr>
+<tr><th scope="row">資料內容</th><td>每 30 分鐘一筆的預調度區域電價（RRP，AUD/MWh），從下一個 30 分鐘時段起，預測到下一個市場日 04:00（NEM 時間）。</td></tr>
+<tr><th scope="row">更新頻率</th><td>AEMO 每 30 分鐘發布一次新的預調度；本頁每 5 分鐘詢問一次，新預測最晚約 5 分鐘內出現。分頁在背景時暫停詢問，回到前景會立即更新。</td></tr>
+<tr><th scope="row">失敗時</th><td>單次請求 15 秒逾時；逾時、網路中斷、HTTP 429 與 5xx 會等 2 秒、4 秒各重試一次，三次都失敗就顯示錯誤，畫面保留上一次成功的資料。</td></tr>
+<tr><th scope="row">手動上傳（備援）</th><td><a href="https://nemweb.com.au/Reports/Current/PredispatchIS_Reports/" target="_blank" rel="noopener">NEMWeb PredispatchIS_Reports</a> 的 PUBLIC_PREDISPATCHIS zip 或解壓後的 CSV。內容與自動讀取相同，但多了預調度執行序號；排除介入（INTERVENTION ≠ 0）的價格。</td></tr>
+<tr><th scope="row">為什麼不直接抓 NEMWeb</th><td>NEMWeb 沒有開放跨網域讀取，瀏覽器會擋下網頁對它的請求；儀表板 API 有開放，所以靜態網頁可以直接呼叫，不需要自架伺服器。</td></tr>
+<tr><th scope="row">限制</th><td>儀表板 API 沒有公開文件與服務保證，AEMO 可能不經通知就改格式；格式不符時本頁會顯示是哪一列哪個欄位出錯，屆時請改用手動上傳。回應裡沒有預調度的執行時間，無法得知是哪一次預調度算出的。</td></tr>
+<tr><th scope="row">不包含</th><td>5 分鐘預調度（P5MIN）、實際結算價、FCAS 輔助服務價格。</td></tr>
+<tr><th scope="row">隱私</th><td>所有計算都在你的瀏覽器裡完成；上傳的檔案不會送出，也不會保存。</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section class="panel note">
+<h3>計算方式與限制</h3>
+<ul>
+<li>預調度是 AEMO 依目前報價算出的預測價；實際結算價（5 分鐘）可能差很多，尤其在尖峰時段。</li>
+<li>時間為 NEM 市場時間（UTC+10，不調整夏令時間），每個時段以結束時間標記；台灣時間＝NEM 時間 − 2 小時。</li>
+<li>建議計畫：每段長度＝容量 ÷ 功率，連續、滿功率。一個循環是「充、放」兩段，兩個循環是「充、放、充、放」四段一起選，取放電段總價減充電段總價最大的組合；不會因為先挑了最賺的一組，就漏掉排在它前面的另一組。同分時取最早的組合，一個與兩個循環同分時取一個，沒有任何組合能獲利時不排。</li>
+<li>搜尋範圍是整個預測期間，可以跨過午夜（例如今晚充、明早放）。</li>
+<li>收益＝放電量 × 電價 × MLF − 充電量 × 電價 × MLF；來回效率固定 100%，不計電池損耗、FCAS、網路費與合約收入。</li>
+</ul>
+</section>
+</main>
+</div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
