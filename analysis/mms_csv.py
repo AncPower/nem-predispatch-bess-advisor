@@ -40,13 +40,13 @@ class MmsTableName:
 
 
 def parse_mms_records(
-    csv_rows: Iterable[Sequence[str]], table_name: MmsTableName, source_label: str
+    csv_rows: Iterable[Sequence[str]], mms_table: MmsTableName, source_label: str
 ) -> Iterator[dict[str, str]]:
     """把 MMS 的列轉成「欄名 → 字串值」，只留指定表的資料列。
 
     Args:
         csv_rows: 已拆欄的 CSV 列，依檔案順序。
-        table_name: 要讀的表。
+        mms_table: 要讀的表。
         source_label: 錯誤訊息裡用來指出來源的名稱，例如檔案路徑。
 
     Yields:
@@ -57,7 +57,7 @@ def parse_mms_records(
     """
     column_names: tuple[str, ...] | None = None
     for line_number, csv_row in enumerate(csv_rows, start=1):
-        if not table_name.matches_row(csv_row):
+        if not mms_table.matches_row(csv_row):
             continue
         if csv_row[RECORD_TYPE_INDEX] == INFORMATION_RECORD:
             column_names = tuple(csv_row[FIRST_FIELD_INDEX:])
@@ -89,15 +89,15 @@ def build_data_record(
     return dict(zip(column_names, field_values, strict=True))
 
 
-def iterate_mms_file(file_path: Path, table_name: MmsTableName) -> Iterator[dict[str, str]]:
+def iterate_mms_file(file_path: Path, mms_table: MmsTableName) -> Iterator[dict[str, str]]:
     """逐列讀取 MMS CSV 檔，不把整個檔案載入記憶體。
 
     Args:
         file_path: CSV 檔路徑。
-        table_name: 要讀的表。
+        mms_table: 要讀的表。
 
     Yields:
         每個資料列一筆，鍵為欄名。
     """
     with file_path.open(newline="", encoding="utf-8") as csv_file:
-        yield from parse_mms_records(csv.reader(csv_file), table_name, str(file_path))
+        yield from parse_mms_records(csv.reader(csv_file), mms_table, str(file_path))
