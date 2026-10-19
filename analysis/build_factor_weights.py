@@ -45,7 +45,7 @@ REGENERATE_COMMAND: str = f"{INPUT_DIRECTORY_VARIABLE}=<原始資料目錄> uv r
 UTC_LOG_FORMAT: str = "%Y-%m-%dT%H:%M:%SZ"
 FAILURE_EXIT_CODE: int = 1
 
-logger = logging.getLogger("analysis.build_factor_weights")
+pipeline_logger: logging.Logger = logging.getLogger("analysis.build_factor_weights")
 
 
 @dataclass(frozen=True)
@@ -133,14 +133,14 @@ def load_factor_sources(raw_input_files: RawInputFiles, repository_root: Path) -
     price_records = iterate_records(raw_input_files.trading_price_files, TRADING_PRICE_TABLE)
     five_minute_prices = merge_interval_prices(price_records, REGION_ID)
     daily_revenue = compute_daily_revenue(average_half_hour_prices(five_minute_prices), REVENUE_BATTERY_SPECIFICATION)
-    logger.info(
+    pipeline_logger.info(
         "step=daily_revenue days=%d incomplete_days=%d",
         len(daily_revenue.revenue_by_date),
         len(daily_revenue.incomplete_dates),
     )
     region_records = iterate_records(raw_input_files.region_solution_files, REGION_SOLUTION_TABLE)
     region_factors = compute_region_day_factors(collect_region_snapshots(region_records, REGION_ID))
-    logger.info(
+    pipeline_logger.info(
         "step=region_factors days=%d incomplete_days=%d",
         len(region_factors.factors_by_date),
         len(region_factors.incomplete_run_counts),
@@ -148,7 +148,7 @@ def load_factor_sources(raw_input_files: RawInputFiles, repository_root: Path) -
     gas_prices = parse_gas_prices(read_csv_records(repository_root / GAS_PRICE_RELATIVE_PATH))
     battery_units = parse_battery_units(read_csv_records(repository_root / BATTERY_UNITS_RELATIVE_PATH))
     battery_power = daily_battery_power(battery_units, daily_revenue.revenue_by_date)
-    logger.info("step=external_factors gas_days=%d battery_days=%d", len(gas_prices), len(battery_power))
+    pipeline_logger.info("step=external_factors gas_days=%d battery_days=%d", len(gas_prices), len(battery_power))
     return FactorSources(daily_revenue, region_factors, gas_prices, battery_power)
 
 
@@ -165,13 +165,13 @@ def build_document(input_directory: Path, repository_root: Path, generated_at: d
     """
     raw_input_files = find_raw_input_files(input_directory)
     factor_dataset = build_factor_dataset(load_factor_sources(raw_input_files, repository_root))
-    logger.info(
+    pipeline_logger.info(
         "step=factor_dataset days=%d excluded_days=%d",
         len(factor_dataset.trading_dates),
         len(factor_dataset.excluded_days),
     )
     weight_solution = solve_factor_weights(factor_dataset.factor_values, factor_dataset.revenue_values)
-    logger.info(
+    pipeline_logger.info(
         "step=weight_solver r_squared=%.4f scale=%.4f", weight_solution.fit_quality.r_squared, weight_solution.scale
     )
     return build_report_document(
@@ -217,10 +217,10 @@ def main() -> int:
         report_document = build_document(read_input_directory(), REPOSITORY_ROOT, datetime.now(UTC))
         write_report_document(report_document, output_path)
     except (ValueError, OSError, RuntimeError) as build_error:
-        logger.error("step=build_factor_weights status=failed error=%s", build_error)
+        pipeline_logger.error("step=build_factor_weights status=failed error=%s", build_error)
         return FAILURE_EXIT_CODE
     elapsed_seconds = time.monotonic() - started_at
-    logger.info("step=build_factor_weights status=done output=%s seconds=%.1f", output_path, elapsed_seconds)
+    pipeline_logger.info("step=build_factor_weights status=done output=%s seconds=%.1f", output_path, elapsed_seconds)
     return 0
 
 
