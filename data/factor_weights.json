@@ -1,0 +1,177 @@
+{
+  "generated_at": "2026-10-19T14:06:08Z",
+  "data_period": {
+    "start": "2024-07-01",
+    "end": "2026-08-31",
+    "day_count": 789
+  },
+  "battery_spec": {
+    "power_mw": 5,
+    "capacity_mwh": 20,
+    "marginal_loss_factor": 1
+  },
+  "revenue": {
+    "transform": "收益取 log(1 + AUD) 後轉 z 分數。預測收益（AUD）= exp(log_mean + log_standard_deviation × (intercept + Σ weight × direction × (因素值 − mean) ÷ standard_deviation)) − 1",
+    "log_mean": 7.918894,
+    "log_standard_deviation": 0.811095,
+    "median_aud": 2651.433333
+  },
+  "intercept": -0.07251,
+  "fit_quality": {
+    "r_squared": 0.483535,
+    "mean_absolute_error_standardized": 0.448015,
+    "mean_absolute_error_aud": 2744.052382
+  },
+  "factors": [
+    {
+      "factor_name": "demand_mean_mw",
+      "label": "日均需求",
+      "unit": "MW",
+      "source": "AEMO P5MIN TOTALDEMAND",
+      "weight": 0.0,
+      "direction": 1,
+      "spearman_correlation": 0.09225,
+      "mean": 7532.494281,
+      "standard_deviation": 935.977908,
+      "monthly_baseline": {
+        "01": 7295.891319,
+        "02": 7862.748924,
+        "03": 7483.288733,
+        "04": 6932.54842,
+        "05": 7634.210278,
+        "06": 8622.735365,
+        "07": 8642.107847,
+        "08": 8056.176458,
+        "09": 6706.992118,
+        "10": 6525.040226,
+        "11": 6740.001667,
+        "12": 7083.115885
+      }
+    },
+    {
+      "factor_name": "evening_peak_demand_mw",
+      "label": "晚間尖峰需求（17:00–21:00 最大值）",
+      "unit": "MW",
+      "source": "AEMO P5MIN TOTALDEMAND",
+      "weight": 0.063825,
+      "direction": 1,
+      "spearman_correlation": 0.212098,
+      "mean": 9662.131179,
+      "standard_deviation": 1228.168946,
+      "monthly_baseline": {
+        "01": 9017.32,
+        "02": 9623.78,
+        "03": 9207.33,
+        "04": 8809.59,
+        "05": 9548.35,
+        "06": 10949.165,
+        "07": 11005.47,
+        "08": 10245.3,
+        "09": 8936.45,
+        "10": 8456.38,
+        "11": 8561.16,
+        "12": 8958.87
+      }
+    },
+    {
+      "factor_name": "supply_margin_minimum_mw",
+      "label": "供給餘裕（可用發電量 − 需求的當日最小值）",
+      "unit": "MW",
+      "source": "AEMO P5MIN AVAILABLEGENERATION、TOTALDEMAND",
+      "weight": 0.431202,
+      "direction": -1,
+      "spearman_correlation": -0.720491,
+      "mean": 2522.660545,
+      "standard_deviation": 1321.840289,
+      "monthly_baseline": {
+        "01": 3527.45916,
+        "02": 3180.11,
+        "03": 3206.34,
+        "04": 2350.8545,
+        "05": 2283.2819,
+        "06": 1691.110415,
+        "07": 2435.68016,
+        "08": 2172.23,
+        "09": 1952.66516,
+        "10": 1896.5634,
+        "11": 1999.837,
+        "12": 2551.24334
+      }
+    },
+    {
+      "factor_name": "net_interchange_mean_mw",
+      "label": "淨進出口日均",
+      "unit": "MW",
+      "source": "AEMO P5MIN NETINTERCHANGE",
+      "weight": 0.16282,
+      "direction": 1,
+      "spearman_correlation": 0.100568,
+      "mean": -512.675665,
+      "standard_deviation": 371.307738,
+      "monthly_baseline": {
+        "01": -93.759167,
+        "02": -224.003854,
+        "03": -426.606285,
+        "04": -462.956562,
+        "05": -490.345278,
+        "06": -750.479444,
+        "07": -673.837674,
+        "08": -725.438056,
+        "09": -733.100694,
+        "10": -416.127726,
+        "11": -341.04184,
+        "12": -237.303941
+      }
+    },
+    {
+      "factor_name": "gas_price_aud_per_gj",
+      "label": "雪梨天然氣事前價",
+      "unit": "AUD/GJ",
+      "source": "AEMO STTM（data/external/sttm_sydney_daily_price.csv）",
+      "weight": 0.1365,
+      "direction": 1,
+      "spearman_correlation": 0.609768,
+      "mean": 12.114139,
+      "standard_deviation": 1.885102,
+      "monthly_baseline": {
+        "01": 11.9,
+        "02": 11.9,
+        "03": 11.81,
+        "04": 11.605,
+        "05": 10.8433,
+        "06": 13.035,
+        "07": 12.33,
+        "08": 12.1423,
+        "09": 11.82445,
+        "10": 13.01105,
+        "11": 13.061,
+        "12": 12.8521
+      }
+    },
+    {
+      "factor_name": "battery_power_mw",
+      "label": "NSW 電池放電功率（月底值）",
+      "unit": "MW",
+      "source": "AEMO MMSDM DUDETAIL（data/external/nsw_battery_units.csv）",
+      "weight": 0.205653,
+      "direction": -1,
+      "spearman_correlation": -0.604762,
+      "mean": 1974.913815,
+      "standard_deviation": 896.359884,
+      "monthly_baseline": {
+        "01": 1964.5,
+        "02": 2064.5,
+        "03": 2319.5,
+        "04": 2294.5,
+        "05": 2294.5,
+        "06": 2419.5,
+        "07": 1670.0,
+        "08": 1735.0,
+        "09": 1717.5,
+        "10": 1747.5,
+        "11": 1747.5,
+        "12": 1955.0
+      }
+    }
+  ]
+}
