@@ -4,9 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from analysis.mms_csv import MmsTableName, iterate_mms_file, parse_mms_records
+from analysis.mms_csv import MmsTableName, NumberedRow, iterate_mms_file, parse_mms_records
 
 TRADING_PRICE_TABLE = MmsTableName(group_name="TRADING", table_name="PRICE")
+
+
+def number_rows(csv_rows: list[list[str]]) -> list[NumberedRow]:
+    """每列各佔一行時的行號（1 起算）。"""
+    return [NumberedRow(line_number, csv_row) for line_number, csv_row in enumerate(csv_rows, start=1)]
 
 
 def test_parse_mms_records_maps_values_by_header_name() -> None:
@@ -17,7 +22,7 @@ def test_parse_mms_records_maps_values_by_header_name() -> None:
         ["D", "TRADING", "PRICE", "2", "2024/01/01 00:05:00", "NSW1", "58"],
     ]
 
-    price_records = list(parse_mms_records(csv_rows, TRADING_PRICE_TABLE, "測試檔"))
+    price_records = list(parse_mms_records(number_rows(csv_rows), TRADING_PRICE_TABLE, "測試檔"))
 
     assert price_records == [{"SETTLEMENTDATE": "2024/01/01 00:05:00", "REGIONID": "NSW1", "RRP": "58"}]
 
@@ -31,7 +36,7 @@ def test_parse_mms_records_follows_header_change_within_file() -> None:
         ["D", "TRADING", "PRICE", "3", "2024/09/01 00:05:00", "NSW1", "20"],
     ]
 
-    price_records = list(parse_mms_records(csv_rows, TRADING_PRICE_TABLE, "測試檔"))
+    price_records = list(parse_mms_records(number_rows(csv_rows), TRADING_PRICE_TABLE, "測試檔"))
 
     assert [price_record["RRP"] for price_record in price_records] == ["10", "20"]
 
@@ -46,7 +51,7 @@ def test_parse_mms_records_skips_other_tables_and_blank_rows() -> None:
         ["D", "TRADING", "PRICE", "2", "58"],
     ]
 
-    price_records = list(parse_mms_records(csv_rows, TRADING_PRICE_TABLE, "測試檔"))
+    price_records = list(parse_mms_records(number_rows(csv_rows), TRADING_PRICE_TABLE, "測試檔"))
 
     assert price_records == [{"RRP": "58"}]
 
@@ -55,8 +60,8 @@ def test_parse_mms_records_rejects_data_before_header() -> None:
     """資料列出現在欄名列之前：丟出帶來源與列號的 ValueError。"""
     csv_rows = [["D", "TRADING", "PRICE", "2", "58"]]
 
-    with pytest.raises(ValueError, match="測試檔 第 1 列"):
-        list(parse_mms_records(csv_rows, TRADING_PRICE_TABLE, "測試檔"))
+    with pytest.raises(ValueError, match="測試檔 第 1 行"):
+        list(parse_mms_records(number_rows(csv_rows), TRADING_PRICE_TABLE, "測試檔"))
 
 
 def test_parse_mms_records_rejects_column_count_mismatch() -> None:
@@ -66,8 +71,8 @@ def test_parse_mms_records_rejects_column_count_mismatch() -> None:
         ["D", "TRADING", "PRICE", "2", "2024/01/01 00:05:00"],
     ]
 
-    with pytest.raises(ValueError, match="第 2 列.*1 欄.*2 欄"):
-        list(parse_mms_records(csv_rows, TRADING_PRICE_TABLE, "測試檔"))
+    with pytest.raises(ValueError, match="第 2 行.*1 欄.*2 欄"):
+        list(parse_mms_records(number_rows(csv_rows), TRADING_PRICE_TABLE, "測試檔"))
 
 
 def test_iterate_mms_file_streams_records_from_disk(tmp_path: Path) -> None:
@@ -78,3 +83,12 @@ def test_iterate_mms_file_streams_records_from_disk(tmp_path: Path) -> None:
     price_records = list(iterate_mms_file(price_file, TRADING_PRICE_TABLE))
 
     assert price_records == [{"REGIONID": "NSW1", "RRP": "58"}]
+
+
+def test_iterate_mms_file_reports_physical_line_after_multiline_field(tmp_path: Path) -> None:
+    """前面有引號內含換行的欄位：錯誤訊息的行號是檔案的實體行號，不是列數。"""
+    price_file = tmp_path / "trading_price.csv"
+    price_file.write_text('C,"first line\nsecond line"\nD,TRADING,PRICE,2,58\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="第 3 行"):
+        list(iterate_mms_file(price_file, TRADING_PRICE_TABLE))
