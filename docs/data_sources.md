@@ -259,3 +259,5 @@ log(1 + 收益) = target.mean + target.standard_deviation
 CI 的 `analysis` job 會跑 `analysis/tests/test_factor_weights_freshness.py`：重算 `combined_sha256`，和 JSON 不同就失敗，訊息列出改動的檔案與重跑指令。改了分析程式或 `data/external/` 之後，要在本機重跑並把 JSON 一起 commit。
 
 `uv.lock` 不在指紋內，所以依賴升版（例如 `highspy`）改變解的時候，CI 不會發現。
+
+指紋直接對檔案的位元組算 sha256，換行符號不同就會得到不同的值。repo 根目錄的 `.gitattributes` 把 `*.py` 與 `data/external/*.csv` 固定為 LF，Windows 上的 CRLF checkout 也不會讓過期檢查誤判。

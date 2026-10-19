@@ -45,3 +45,12 @@ def test_factor_weights_json_records_raw_input_manifest() -> None:
 
     assert raw_input_files
     assert all(set(raw_entry) == {"relative_path", "size_bytes", "sha256"} for raw_entry in raw_input_files)
+
+
+def test_gitattributes_pins_line_endings_of_fingerprinted_files() -> None:
+    """指紋涵蓋的程式與外部 CSV：.gitattributes 都固定為 LF，CRLF checkout 不會讓指紋改變。"""
+    attribute_lines = (REPOSITORY_ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+
+    assert "*.py text eol=lf" in attribute_lines
+    assert "data/external/*.csv text eol=lf" in attribute_lines
+    assert all(relative_path.startswith("data/external/") and relative_path.endswith(".csv") for relative_path in EXTERNAL_INPUT_RELATIVE_PATHS)

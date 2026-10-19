@@ -1,0 +1,4 @@
+# 輸入指紋（analysis/input_fingerprint.py）直接對檔案位元組算 sha256；
+# 固定為 LF，避免 CRLF checkout 讓 data/factor_weights.json 的過期檢查誤判。
+*.py text eol=lf
+data/external/*.csv text eol=lf
