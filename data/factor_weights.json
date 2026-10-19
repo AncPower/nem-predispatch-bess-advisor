@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-10-19T16:05:29Z",
+  "generated_at": "2026-10-19T16:06:59Z",
   "period": {
     "start_date": "2024-07-01",
     "end_date": "2026-08-31",
@@ -251,13 +251,13 @@
       "analysis/nem_day.py": "825c909ce42f3f9ed4b73fd315e47ffdfeb41c948e1c1b21392a09a9dafee887",
       "analysis/record_fields.py": "b71ce2a163c83bbc2ef64ccd640b7edec4b7e004caeb71c663ce61a206d95620",
       "analysis/region_factors.py": "9754a4a6ff3b786f0e019df7b42d4c926ed7b02a68c5c70e87f9a7a1e97c5260",
-      "analysis/weight_solver.py": "a7dd8c06bd3e64d73fc81e382ac9ba29dab1ab9e81c16d25875d347004552637"
+      "analysis/weight_solver.py": "310a51b96f87eec14bb05715e4e904ebdfd868101d60bd6a4ed656d39a30e020"
     },
     "external_files": {
       "data/external/nsw_battery_units.csv": "5ab648d0c9027f62caef0a73e5929dd31acaac5113516bfd95b73b7e6f67abe4",
       "data/external/sttm_sydney_daily_price.csv": "2058bcc834a34935cb7f513e15fd1a254a94712ae686fb55c2f122f5da292e59"
     },
-    "combined_sha256": "af19960898d09b5acae801680f75502fd6c57bf93a00e58df41ed94fd324171b",
+    "combined_sha256": "bc964b29c7a1e9138d05545beb333d41a035a293033dbf4a0e39db8dcb9e4538",
     "raw_input_files": [
       {
         "relative_path": "2024-01_2024-12/p5min_region_solution.csv",

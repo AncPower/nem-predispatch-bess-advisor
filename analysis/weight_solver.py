@@ -43,8 +43,8 @@ class StandardizedTarget:
 class FactorDirections:
     """每個因素與目標的相關係數，以及據此決定的方向（+1／−1）。"""
 
-    correlations: np.ndarray
-    directions: np.ndarray
+    correlation_values: np.ndarray
+    direction_signs: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -137,9 +137,9 @@ def compute_directions(standardized_factors: np.ndarray, standardized_target: np
     Returns:
         相關係數與方向；相關係數為 0 時方向取 +1。
     """
-    correlations = standardized_factors.T @ standardized_target / len(standardized_target)
-    directions = np.where(correlations >= 0.0, POSITIVE_DIRECTION, NEGATIVE_DIRECTION)
-    return FactorDirections(correlations, directions)
+    correlation_values = standardized_factors.T @ standardized_target / len(standardized_target)
+    direction_signs = np.where(correlation_values >= 0.0, POSITIVE_DIRECTION, NEGATIVE_DIRECTION)
+    return FactorDirections(correlation_values, direction_signs)
 
 
 @dataclass(frozen=True)
@@ -241,10 +241,10 @@ def compute_scale(coefficients: np.ndarray) -> float:
     Raises:
         ValueError: 總和不大於 0（係數全為 0）時。
     """
-    scale = float(coefficients.sum())
-    if scale <= 0.0:
+    coefficient_sum = float(coefficients.sum())
+    if coefficient_sum <= 0.0:
         raise ValueError("所有因素的係數全為 0，權重無法正規化")
-    return scale
+    return coefficient_sum
 
 
 def evaluate_fit(log_target: np.ndarray, predicted_log: np.ndarray, revenue_values: np.ndarray) -> FitQuality:
@@ -258,17 +258,17 @@ def evaluate_fit(log_target: np.ndarray, predicted_log: np.ndarray, revenue_valu
     Returns:
         R²、log 尺度 MAE、換回 AUD 的 MAE。
     """
-    residuals = log_target - predicted_log
+    residual_values = log_target - predicted_log
     total_variation = float(((log_target - log_target.mean()) ** 2).sum())
     return FitQuality(
-        r_squared=1.0 - float((residuals**2).sum()) / total_variation,
-        mean_absolute_error_log=float(np.abs(residuals).mean()),
+        r_squared=1.0 - float((residual_values**2).sum()) / total_variation,
+        mean_absolute_error_log=float(np.abs(residual_values).mean()),
         mean_absolute_error_aud=float(np.abs(revenue_values - np.expm1(predicted_log)).mean()),
     )
 
 
 def build_factor_fits(
-    linear_fit: LinearFit, factor_directions: FactorDirections, standardized_factors: StandardizedMatrix, scale: float
+    linear_fit: LinearFit, factor_directions: FactorDirections, standardized_factors: StandardizedMatrix, weight_scale: float
 ) -> tuple[FactorFit, ...]:
     """把係數、方向與標準化參數整理成每個因素一筆結果。
 
@@ -276,16 +276,16 @@ def build_factor_fits(
         linear_fit: L1 迴歸結果。
         factor_directions: 相關係數與方向。
         standardized_factors: 因素的標準化參數。
-        scale: 係數總和 β。
+        weight_scale: 係數總和 β。
 
     Returns:
         依輸入欄順序的因素結果；權重為係數 ÷ β。
     """
     return tuple(
         FactorFit(
-            factor_weight=float(linear_fit.coefficients[column_index] / scale),
-            direction=int(factor_directions.directions[column_index]),
-            correlation=float(factor_directions.correlations[column_index]),
+            factor_weight=float(linear_fit.coefficients[column_index] / weight_scale),
+            direction=int(factor_directions.direction_signs[column_index]),
+            correlation=float(factor_directions.correlation_values[column_index]),
             factor_mean=float(standardized_factors.column_means[column_index]),
             factor_standard_deviation=float(standardized_factors.column_standard_deviations[column_index]),
         )
@@ -313,16 +313,16 @@ def solve_factor_weights(factor_values: np.ndarray, revenue_values: np.ndarray) 
     target_z = standardized_target.standardized_values
     standardized_factors = standardize_columns(factor_values)
     factor_directions = compute_directions(standardized_factors.standardized_values, target_z)
-    signed_factors = standardized_factors.standardized_values * factor_directions.directions
+    signed_factors = standardized_factors.standardized_values * factor_directions.direction_signs
     linear_fit = solve_l1_nonnegative(signed_factors, target_z)
-    scale = compute_scale(linear_fit.coefficients)
+    weight_scale = compute_scale(linear_fit.coefficients)
     target_mean = standardized_target.target_mean
     target_deviation = standardized_target.target_standard_deviation
     predicted_log = target_mean + target_deviation * (linear_fit.intercept + signed_factors @ linear_fit.coefficients)
     return WeightSolution(
-        factor_fits=build_factor_fits(linear_fit, factor_directions, standardized_factors, scale),
+        factor_fits=build_factor_fits(linear_fit, factor_directions, standardized_factors, weight_scale),
         intercept=linear_fit.intercept,
-        scale=scale,
+        scale=weight_scale,
         target_mean=target_mean,
         target_standard_deviation=target_deviation,
         fit_quality=evaluate_fit(log_target, predicted_log, revenue_values),

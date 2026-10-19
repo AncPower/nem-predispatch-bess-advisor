@@ -58,8 +58,8 @@ def test_compute_directions_follows_correlation_sign() -> None:
 
     factor_directions = compute_directions(standardized_factors, standardized_target)
 
-    assert np.allclose(factor_directions.correlations, [1.0, -1.0, 0.0])
-    assert list(factor_directions.directions) == [1, -1, 1]
+    assert np.allclose(factor_directions.correlation_values, [1.0, -1.0, 0.0])
+    assert list(factor_directions.direction_signs) == [1, -1, 1]
 
 
 def test_solve_l1_nonnegative_recovers_exact_linear_relation() -> None:
