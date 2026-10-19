@@ -71,6 +71,8 @@ uv sync
 uv run pytest
 ```
 
+`analysis` 沒有打包成可安裝的套件（`pyproject.toml` 沒有 build-system，`uv sync` 只裝依賴），所以 Python 指令一律在 repo 根目錄執行，模組用 `uv run python -m analysis.<模組名>` 啟動；在別的目錄執行會出現 `ModuleNotFoundError: No module named 'analysis'`。pytest 由 `pyproject.toml` 的 `pythonpath = ["."]` 處理。
+
 CI 在每個 PR 跑這兩組測試（`.github/workflows/ci.yml` 的 `test` 與 `analysis` 兩個 job）。
 
 ## 檔案結構
