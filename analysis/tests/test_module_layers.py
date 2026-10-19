@@ -14,6 +14,7 @@ MODULE_LAYERS: dict[str, int] = {
     "record_fields": 0,
     "arbitrage_plan": 1,
     "region_factors": 1,
+    "external_factors": 1,
     "daily_revenue": 2,
 }
 
