@@ -68,7 +68,7 @@ CI 在每個 PR 跑同一個指令（`.github/workflows/ci.yml`）。
 
 ## 檔案結構
 
-各模組的職責與依賴在 [`docs/module_map.md`](docs/module_map.md)。
+各模組的職責與依賴在 [`docs/module_map.md`](docs/module_map.md)。所有資料來源的網址、內容、意義與用在哪條公式在 [`docs/data_sources.md`](docs/data_sources.md)；外部資料的存檔放在 `data/external/`。
 
 ## 發佈
 
