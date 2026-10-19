@@ -24,3 +24,16 @@
 | `src/scenario_app.js` | L4 進入點 | 情境工具（`scenario/index.html`）：模擬、校準、讀備註 | — | `history_calibration`, `price_simulation`, `scenario_presets`, `scenario_render`, `special_date_notes`, `spread_strategy` |
 
 外部函式庫由兩個 HTML 從 cdnjs 以全域變數載入：JSZip 3.10.1（預調度工具解壓上傳的 zip）、Chart.js 4.4.1（兩個工具畫圖）。
+
+## 離線分析層 `analysis/`（Python）
+
+以 uv 管理，只在本機批次執行，網頁不載入。層級規則同上，由 `analysis/tests/test_module_layers.py` 檢查；新增、改名或刪除模組時，同一個 commit 更新本表與該測試的層級表。
+
+| 模組 | 層級 | 職責 | 對外介面 | 依賴 |
+|---|---|---|---|---|
+| `analysis/nem_day.py` | L0 基礎 | NEM 時間解析、交易日判斷、5 分鐘對應 30 分鐘時段 | `FIVE_MINUTE_INTERVAL`, `HALF_HOUR_INTERVAL`, `INTERVAL_HOURS`, `HALF_HOURS_PER_DAY`, `FIVE_MINUTE_INTERVALS_PER_HALF_HOUR`, `parse_mms_timestamp`, `trading_date_for`, `half_hour_end_for` | — |
+| `analysis/mms_csv.py` | L0 基礎 | AEMO MMS CSV 依欄名串流解析，支援檔案中途換版本；每列附上檔案與實體行號 | `MmsTableName`, `MmsRecord`, `NumberedRow`, `LineNumberedReader`, `number_reader_rows`, `parse_mms_records`, `iterate_mms_file` | — |
+| `analysis/arbitrage_plan.py` | L1 演算法 | `select_best_plan` 的 Python 版，與 `src/window_selection.js` 以共用案例驗證一致 | `BatterySpecification`, `PlannedCycle`, `ArbitragePlan`, `round_half_up`, `segment_length_for`, `select_best_plan` | `nem_day` |
+| `analysis/daily_revenue.py` | L2 彙整計算 | 合併多檔 5 分鐘電價、平均成 30 分鐘、算每個交易日的套利收益 | `DailyRevenueResult`, `SourcedPrice`, `merge_interval_prices`, `average_half_hour_prices`, `group_prices_by_trading_date`, `compute_daily_revenue` | `arbitrage_plan`, `mms_csv`, `nem_day` |
+
+JS 與 Python 共用的測試案例在 `tests/fixtures/select_best_plan_cases.json`，由 `tests/select_best_plan_fixture.test.js` 與 `analysis/tests/test_arbitrage_plan.py` 讀取。
