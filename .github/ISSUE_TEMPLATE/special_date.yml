@@ -1,0 +1,55 @@
+name: 特殊日期備註
+description: 記下資料很特別的日期，供情境工具校準時參考或排除
+title: "[特殊日期] "
+labels: ["special-date"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        遇到資料很特別的日期（極端天氣、機組事故、政策公告、資料異常），請記下日期、時間與補充資訊。
+        情境工具（https://ancpower.github.io/nem-predispatch-bess-advisor/scenario/）會讀取未關閉的備註；勾選「校準時排除此日」的日期不會納入歷史校準。要撤回備註，關閉這個 issue 即可。
+  - type: input
+    id: note_date
+    attributes:
+      label: 日期
+      description: 格式 YYYY-MM-DD，例如 2026-10-19
+      placeholder: "2026-10-19"
+    validations:
+      required: true
+  - type: input
+    id: note_time
+    attributes:
+      label: 時間
+      description: NEM 時間 HH:MM，可留空
+      placeholder: "18:30"
+  - type: input
+    id: note_market
+    attributes:
+      label: 市場或區域
+      placeholder: NSW1
+  - type: dropdown
+    id: note_category
+    attributes:
+      label: 類別
+      options:
+        - 極端天氣
+        - 機組或輸電事故
+        - 政策或規則公告
+        - 燃料價格事件
+        - 資料異常
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: note_text
+    attributes:
+      label: 補充資訊
+      description: 發生了什麼、對電價的影響、資料來源連結
+    validations:
+      required: true
+  - type: checkboxes
+    id: note_exclude
+    attributes:
+      label: 校準
+      options:
+        - label: 校準時排除此日

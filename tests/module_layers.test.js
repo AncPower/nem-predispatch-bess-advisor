@@ -5,12 +5,23 @@ import { test } from "node:test";
 const SOURCE_DIRECTORY = new URL("../src/", import.meta.url);
 const MODULE_LAYERS = Object.freeze({
   "nem_time.js": 0,
+  "csv_line.js": 0,
+  "http_request.js": 0,
+  "number_format.js": 0,
+  "day_shape.js": 0,
+  "scenario_presets.js": 0,
   "window_selection.js": 1,
   "threshold_dispatch.js": 1,
+  "price_simulation.js": 1,
+  "spread_strategy.js": 1,
+  "history_calibration.js": 1,
   "dashboard_source.js": 2,
   "upload_parser.js": 2,
+  "special_date_notes.js": 2,
   "page_render.js": 3,
+  "scenario_render.js": 3,
   "app.js": 4,
+  "scenario_app.js": 4,
 });
 const IMPORT_PATTERN = /from\s+"\.\/([\w.]+)"/g;
 

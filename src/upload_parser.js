@@ -5,6 +5,7 @@
  * 輸出格式與 `dashboard_source.parse_dashboard_report` 相同。
  */
 
+import { split_csv_line } from "./csv_line.js";
 import { parse_nem_timestamp } from "./nem_time.js";
 
 const INFORMATION_ROW_MARKER = "I";
@@ -73,32 +74,4 @@ function read_price_record(row_cells, header_names) {
     interval_end_minute: parse_nem_timestamp(row_values[column_index.datetime]),
     price,
   };
-}
-
-/**
- * 拆一列 CSV，支援雙引號與跳脫的雙引號。
- *
- * @param {string} csv_line 一列文字
- * @returns {string[]} 欄位
- */
-function split_csv_line(csv_line) {
-  const row_cells = [];
-  let current_cell = "";
-  let inside_quotes = false;
-  for (let character_index = 0; character_index < csv_line.length; character_index++) {
-    const current_character = csv_line[character_index];
-    if (inside_quotes && current_character === '"' && csv_line[character_index + 1] === '"') {
-      current_cell += '"';
-      character_index++;
-    } else if (current_character === '"') {
-      inside_quotes = !inside_quotes;
-    } else if (current_character === "," && !inside_quotes) {
-      row_cells.push(current_cell);
-      current_cell = "";
-    } else {
-      current_cell += current_character;
-    }
-  }
-  row_cells.push(current_cell.replace(/\r$/, ""));
-  return row_cells;
 }

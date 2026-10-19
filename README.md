@@ -1,8 +1,13 @@
 # nem-predispatch-bess-advisor
 
-讀 AEMO 最新的 30 分鐘預調度電價，找出接下來最划算的儲能充放電時段，算出預估收益。整頁是靜態網頁，資料在瀏覽器裡直接向 AEMO 取，不需要伺服器。
+兩個儲能決策用的靜態網頁，資料在瀏覽器裡直接取得，不需要伺服器。
 
-網址：<https://ancpower.github.io/nem-predispatch-bess-advisor/>（repo 公開並開啟 GitHub Pages 後生效）
+| 工具 | 網址 | 用途 |
+|---|---|---|
+| AEMO 預調度充放電建議 | <https://ancpower.github.io/nem-predispatch-bess-advisor/> | 讀最新的 30 分鐘預調度電價，找出接下來最划算的充放電時段與預估收益 |
+| 儲能情境因子與歷史校準 | <https://ancpower.github.io/nem-predispatch-bess-advisor/scenario/> | 用歷史電價校準價格型態，加上天氣、相關市場與新聞事件，評估四小時價差標準 |
+
+兩者頁首互相連結。以下「資料來源」與「計算」兩節講預調度工具，情境工具在後面獨立一節。
 
 ## 資料來源
 
@@ -22,15 +27,34 @@
 - 來回效率固定 100%，不計損耗。損失係數（MLF）只縮放收益。
 - 搜尋範圍是整個預測期間，可以跨過午夜。建議計畫一律從空電池開始；「目前電量」只用在自訂價格的試算。
 
+## 情境工具
+
+### 資料來源
+
+| 資料 | 來源 | 何時讀 |
+|---|---|---|
+| 市場預設值 | 程式內的示意價格型態（`src/scenario_presets.js`），不是即時數據 | 開頁 |
+| 歷史電價 | 手動上傳 CSV，例如 AEMO 的 `PRICE_AND_DEMAND_YYYYMM_NSW1.csv`；AEMO 網站沒有開放跨網域讀取，網頁無法直接下載 | 上傳時 |
+| 特殊日期備註 | 本 repo 標籤為 `special-date`、未關閉的 GitHub issue，以 GitHub REST API 讀取 | 開頁與按「重新整理備註」時 |
+
+備註用 issue 表單 [`.github/ISSUE_TEMPLATE/special_date.yml`](.github/ISSUE_TEMPLATE/special_date.yml) 新增，頁面上的按鈕會帶入日期、時間、市場與補充資訊。勾選「校準時排除此日」的日期不納入歷史校準；關閉 issue 就等於撤回。GitHub API 未登入時每個網路每小時 60 次，所以頁面不自動輪詢。issue 內文任何人都能寫，頁面只當純文字顯示。
+
+### 計算
+
+- 每日電價＝基準價 × 日型態（清晨小峰、午間再生能源凹陷、傍晚尖峰）＋雜訊，偶發尖峰落在 18 至 21 時。模擬 400 條路徑，亂數種子固定。
+- 電池為空時在當日最低的連續四小時充電；之後最高的連續四小時與充電價的價差達標就放電，否則持有，等滿最長天數就強制放電。
+- 四小時電池，預設 5 MW／20 MWh；來回效率固定 100%，不計損耗。
+- 歷史校準以最小平方法擬合日型態的四個係數，再算尖峰日比例、天氣波動度與四小時價差中位數。檔案含多個區域時用 NSW1。
+
 ## 本機執行
 
-頁面用 ES module 載入 `src/`，要經過 HTTP 才開得起來，直接開 `index.html` 檔案不行：
+頁面用 ES module 載入 `src/`，要經過 HTTP 才開得起來，直接開 HTML 檔案不行：
 
 ```bash
 uv run --no-project python -m http.server 8000
 ```
 
-然後開 <http://127.0.0.1:8000>。
+然後開 <http://127.0.0.1:8000>（預調度工具）或 <http://127.0.0.1:8000/scenario/>（情境工具）。
 
 ## 測試
 
@@ -54,3 +78,4 @@ GitHub Pages 從 `main` 分支根目錄發佈，合併即上線。AncPower 是 G
 
 - 5 分鐘預調度（P5MIN）：只在 NEMWeb，網頁讀不到；等確定要在盤中使用再評估。
 - 實際結算價、FCAS 輔助服務價格。
+- 情境工具的天氣與相關市場換算係數仍是初始假設，沒有用實際資料校準。

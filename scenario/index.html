@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>儲能情境因子與歷史校準</title>
+<meta name="description" content="用歷史電價校準價格型態，再以天氣、相關市場與新聞事件調整情境，評估四小時價差標準。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>儲能情境因子與歷史校準</h1>
+<p>用歷史電價校準價格型態，再以天氣、相關市場與新聞事件調整情境因子，評估「連續四小時高價段 − 連續四小時低價段」的價差標準。資料特別的日期可在下方留下備註，供開發人員調整量化方式。即時預調度電價請用 <a href="../">AEMO 預調度充放電建議</a>。</p>
+</header>
+<div class="grid">
+<aside class="controls" id="controls_panel" aria-label="輸入參數">
+<h2>市場</h2>
+<select id="market_select" aria-label="選擇市場"></select>
+<p class="hint" id="market_note"></p>
+<h2>依新聞事件調整</h2>
+<p class="hint">點一下即在目前數值上套用調整，可重複點選。</p>
+<div class="news" id="news_buttons"></div>
+<div class="log" id="news_log" aria-live="polite"></div>
+<button class="reset" id="reset_button" type="button">回到市場預設值</button>
+<h2>市場情境因子</h2>
+<div id="scenario_fields"></div>
+<div class="pair">
+<div class="field"><label for="number_price_floor"><span>價格下限</span></label><input type="number" id="number_price_floor"></div>
+<div class="field"><label for="number_price_cap"><span>價格上限</span></label><input type="number" id="number_price_cap"></div>
+</div>
+<h2>天氣與相關市場</h2>
+<p class="hint">把天氣預報與鄰近市場的變化換算成情境調整。</p>
+<div id="weather_fields"></div>
+<h2>設備與策略</h2>
+<p class="hint">四小時電池，來回效率固定 100%，不計電池損耗。</p>
+<div id="strategy_fields"></div>
+</aside>
+<main class="main">
+<section class="verdict" aria-live="polite">
+<div class="lamp" id="verdict_lamp">—</div>
+<div><h3 id="verdict_title">計算中</h3><p id="verdict_text"></p></div>
+</section>
+<section class="card">
+<h3>今日情境下的 24 小時電價</h3>
+<p class="sub" id="price_subtitle"></p>
+<div class="legend">
+<span><i class="sw" style="background:var(--band)"></i>10–90% 區間</span>
+<span><i class="sw" style="background:var(--line);height:3px"></i>中位數</span>
+<span><i class="sw" style="background:var(--charge-soft);border:1px solid var(--charge)"></i>最常見的充電時段</span>
+<span><i class="sw" style="background:var(--discharge-soft);border:1px solid var(--discharge)"></i>最常見的放電時段</span>
+</div>
+<div class="chart"><canvas id="hourly_chart" role="img" aria-label="24 小時電價分布與充放電時段"></canvas></div>
+</section>
+<section class="kpis" id="kpi_row"></section>
+<section class="card">
+<h3>價差標準與預估收益</h3>
+<p class="sub">每個標準都以同一組模擬電價計算，可看出標準設太高（等太久、錯過機會）或太低（低價差也放電）的取捨。</p>
+<div class="chart"><canvas id="standard_chart" role="img" aria-label="不同價差標準下的預估期間收益"></canvas></div>
+</section>
+<section class="card">
+<h3>以歷史電價校準</h3>
+<p class="sub">上傳歷史電價 CSV（例如 AEMO 各區域每月的 PRICE_AND_DEMAND 檔，或任何含日期時間與電價兩欄的檔案）。工具會擬合每日價格型態、尖峰頻率與價差，取代市場預設值；檔案含多個區域時使用 NSW1。下方備註中標記「校準時排除」的日期不會納入。</p>
+<div class="drop" id="calibration_drop" tabindex="0" role="button" aria-label="上傳歷史電價 CSV">拖曳或點選上傳歷史電價 CSV</div>
+<input type="file" id="calibration_file" accept=".csv,.CSV,.txt" hidden>
+<div class="status" id="calibration_status" aria-live="polite"></div>
+<div class="calstats" id="calibration_stats"></div>
+</section>
+<section class="card">
+<h3>特殊日期備註</h3>
+<p class="sub">遇到資料很特別的日期（極端天氣、機組事故、政策公告、資料異常），請記下日期、時間與補充資訊。備註存在 <a href="https://github.com/AncPower/nem-predispatch-bess-advisor/issues?q=is%3Aissue+label%3Aspecial-date" target="_blank" rel="noopener">GitHub Issues（標籤 special-date）</a>，所有人都看得到；開發人員會依備註決定是否調整量化與因子校準方式。</p>
+<div class="nform">
+<div><label for="note_date">日期</label><input type="date" id="note_date"></div>
+<div><label for="note_time">時間</label><input type="time" id="note_time"></div>
+<div><label for="note_market">市場或區域</label><input type="text" id="note_market" placeholder="例如 NSW1"></div>
+<div class="wide"><label for="note_text">補充資訊</label><textarea id="note_text" placeholder="發生了什麼、對電價的影響、資料來源連結"></textarea></div>
+<div class="wide button-row">
+<button class="btn primary" id="new_note_button" type="button">在 GitHub 新增備註</button>
+<button class="btn" id="refresh_notes_button" type="button">重新整理備註</button>
+</div>
+</div>
+<p class="sub" style="margin-top:8px">按「在 GitHub 新增備註」會在新分頁打開已填好上面欄位的表單；類別與「校準時排除此日」在表單上選，送出需要 GitHub 帳號。要撤回備註，到該 issue 按 Close。</p>
+<div class="status" id="notes_status" aria-live="polite"></div>
+<div class="tblwrap"><table class="tbl"><thead><tr><th>日期</th><th>時間</th><th>市場</th><th>類別</th><th>補充資訊</th><th>校準</th><th>Issue</th></tr></thead><tbody id="notes_body"></tbody></table></div>
+</section>
+<section class="card notes">
+<h3>資料來源與模型假設</h3>
+<ul>
+<li>各市場預設值是依公開報導整理的示意價格型態，不是即時市場數據；正式使用前請以歷史電價校準。</li>
+<li>歷史電價：手動上傳。AEMO 網站的月檔不開放跨網域讀取，網頁無法直接下載。</li>
+<li>特殊日期備註：開頁時與按「重新整理備註」時向 GitHub API 讀取未關閉、標籤為 special-date 的 issue。未登入時每個網路每小時最多 60 次，所以不會自動輪詢。</li>
+<li>每日電價由基準價、午間再生能源凹陷、傍晚尖峰、天氣波動與偶發尖峰組成，模擬 400 條路徑（固定亂數種子，同樣輸入得到同樣結果）。</li>
+<li>每天若電池為空，於當日最低價的連續四小時充電；之後出現的最高價連續四小時，若與充電價的價差達標即放電，否則持有，最多等待設定天數後強制放電。</li>
+<li>收益＝放電電量 ×（高價段均價 − 低價段均價）；來回效率固定 100%，不計電池損耗、輔助服務、容量收入、網路費與損失係數。</li>
+<li>此工具假設發電與用電業者的參與量沒有劇烈變化；若市場結構改變（大量新電池、電廠退場、規則修訂），預設值需重新校準。</li>
+<li>天氣與相關市場的換算係數（例如每偏離 1°C 需求增加的比例、風電與鄰近市場電價的傳導比例）為初始假設，會依備註與實際結果調整。</li>
+</ul>
+</section>
+</main>
+</div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script type="module" src="../src/scenario_app.js"></script>
+</body>
+</html>

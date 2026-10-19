@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { TransientFetchError, fetch_dashboard_report, parse_dashboard_report } from "../src/dashboard_source.js";
+import { fetch_dashboard_report, parse_dashboard_report } from "../src/dashboard_source.js";
+import { TransientFetchError } from "../src/http_request.js";
 
 /** 依儀表板 API 實際回應欄位組一列。 */
 function build_report_row(row_fields) {
