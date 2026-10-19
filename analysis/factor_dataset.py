@@ -6,16 +6,16 @@
 """
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from collections.abc import Mapping
+from datetime import date
 
 import numpy as np
 
 from analysis.daily_revenue import DailyRevenueResult
-from analysis.nem_day import FIVE_MINUTE_INTERVALS_PER_DAY
+from analysis.nem_day import FIVE_MINUTE_INTERVALS_PER_DAY, list_calendar_dates
 from analysis.region_factors import RegionFactorResult
 
 REASON_SEPARATOR: str = "；"
-ONE_DAY: timedelta = timedelta(days=1)
 
 
 @dataclass(frozen=True)
@@ -166,13 +166,34 @@ def list_excluded_days(period_start: date, period_end: date, factor_sources: Fac
         依日期排序的排除日。
     """
     excluded_days: list[ExcludedDay] = []
-    period_date = period_start
-    while period_date <= period_end:
+    for period_date in list_calendar_dates(period_start, period_end):
         missing_reasons = find_missing_reasons(period_date, factor_sources)
         if missing_reasons:
             excluded_days.append(ExcludedDay(period_date, REASON_SEPARATOR.join(missing_reasons)))
-        period_date += ONE_DAY
     return tuple(excluded_days)
+
+
+def span_source_dates(
+    daily_revenue: DailyRevenueResult, region_factors: RegionFactorResult, gas_prices: Mapping[date, float]
+) -> list[date]:
+    """電價、區域解與天然氣價涵蓋的完整日曆區間（含中間沒有資料的日子）。
+
+    電池裝置量要對這整段每一天都算，否則缺電價的日子會被誤記成「沒有電池裝置量」。
+
+    Args:
+        daily_revenue: 每日收益與不完整日。
+        region_factors: 區域因素與不完整日。
+        gas_prices: 天然氣價。
+
+    Returns:
+        從最早到最晚的每一天；三個來源都沒有資料時為空清單。
+    """
+    source_dates = set(daily_revenue.revenue_by_date) | set(daily_revenue.incomplete_dates)
+    source_dates |= set(region_factors.factors_by_date) | set(region_factors.incomplete_run_counts)
+    source_dates |= set(gas_prices)
+    if not source_dates:
+        return []
+    return list_calendar_dates(min(source_dates), max(source_dates))
 
 
 def build_factor_dataset(factor_sources: FactorSources) -> FactorDataset:

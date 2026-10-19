@@ -68,3 +68,17 @@ def half_hour_end_for(five_minute_end: datetime) -> datetime:
     start_midnight = datetime.combine(interval_start.date(), time())
     half_hour_index = (interval_start - start_midnight) // HALF_HOUR_INTERVAL
     return start_midnight + (half_hour_index + 1) * HALF_HOUR_INTERVAL
+
+
+def list_calendar_dates(first_date: date, last_date: date) -> list[date]:
+    """兩個日期之間（含頭尾）的每一天。
+
+    Args:
+        first_date: 第一天。
+        last_date: 最後一天。
+
+    Returns:
+        依序的日期；最後一天早於第一天時為空清單。
+    """
+    day_count = (last_date - first_date).days + 1
+    return [first_date + timedelta(days=day_offset) for day_offset in range(max(0, day_count))]

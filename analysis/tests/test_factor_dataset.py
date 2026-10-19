@@ -6,11 +6,13 @@ from datetime import date
 import pytest
 
 from analysis.daily_revenue import DailyRevenueResult
+from analysis.external_factors import BatteryUnitRecord, daily_battery_power
 from analysis.factor_dataset import (
     FACTOR_DEFINITIONS,
     DailyFactorValues,
     FactorSources,
     build_factor_dataset,
+    span_source_dates,
 )
 from analysis.region_factors import RegionDayFactors, RegionFactorResult
 
@@ -34,12 +36,12 @@ def build_sources(
 ) -> FactorSources:
     """依各來源有資料的日子組輸入；收益與需求用日期的日數區分。"""
     return FactorSources(
-        daily_revenue=DailyRevenueResult({day: 1000.0 * day.day for day in revenue_dates}, ()),
+        daily_revenue=DailyRevenueResult({source_day: 1000.0 * source_day.day for source_day in revenue_dates}, ()),
         region_factors=RegionFactorResult(
-            {day: build_region_day(7000.0 + day.day) for day in region_dates}, incomplete_run_counts or {}
+            {source_day: build_region_day(7000.0 + source_day.day) for source_day in region_dates}, incomplete_run_counts or {}
         ),
-        gas_prices={day: 12.0 for day in gas_dates},
-        battery_power={day: 140.0 for day in battery_dates},
+        gas_prices={source_day: 12.0 for source_day in gas_dates},
+        battery_power={source_day: 140.0 for source_day in battery_dates},
     )
 
 
@@ -109,3 +111,30 @@ def test_build_factor_dataset_rejects_no_complete_day() -> None:
 
     with pytest.raises(ValueError, match="沒有任何一天"):
         build_factor_dataset(factor_sources)
+
+
+def test_span_source_dates_covers_gap_between_sources() -> None:
+    """來源之間有完全沒資料的日子：區間仍含頭尾之間的每一天。"""
+    factor_sources = build_sources([FIRST_DAY], [FOURTH_DAY], [], [])
+
+    spanned_dates = span_source_dates(
+        factor_sources.daily_revenue, factor_sources.region_factors, factor_sources.gas_prices
+    )
+
+    assert spanned_dates == [FIRST_DAY, SECOND_DAY, THIRD_DAY, FOURTH_DAY]
+
+
+def test_incomplete_revenue_day_is_not_blamed_on_battery() -> None:
+    """期間中間某天電價不完整：電池裝置量照常算出，排除原因只有電價，不含電池。"""
+    all_days = [FIRST_DAY, SECOND_DAY, THIRD_DAY]
+    battery_unit = BatteryUnitRecord("UNIT1", date(2024, 7, 1), 50.0, date(2024, 7, 1), date(2999, 12, 31))
+    daily_revenue = DailyRevenueResult({FIRST_DAY: 1000.0, THIRD_DAY: 3000.0}, (SECOND_DAY,))
+    region_factors = RegionFactorResult({source_day: build_region_day(7000.0 + source_day.day) for source_day in all_days}, {})
+    gas_prices = {source_day: 12.0 for source_day in all_days}
+    battery_power = daily_battery_power((battery_unit,), span_source_dates(daily_revenue, region_factors, gas_prices))
+
+    factor_dataset = build_factor_dataset(FactorSources(daily_revenue, region_factors, gas_prices, battery_power))
+
+    assert [excluded_day.trading_date for excluded_day in factor_dataset.excluded_days] == [SECOND_DAY]
+    assert "電價" in factor_dataset.excluded_days[0].reason
+    assert "電池" not in factor_dataset.excluded_days[0].reason

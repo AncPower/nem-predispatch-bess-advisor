@@ -11,6 +11,7 @@ from analysis.nem_day import (
     HALF_HOURS_PER_DAY,
     INTERVAL_HOURS,
     half_hour_end_for,
+    list_calendar_dates,
     parse_mms_timestamp,
     trading_date_for,
 )
@@ -77,3 +78,13 @@ def test_half_hour_end_for_rejects_unaligned_timestamp() -> None:
     """沒有對齊 5 分鐘的時間：丟出 ValueError。"""
     with pytest.raises(ValueError, match="5 分鐘"):
         half_hour_end_for(datetime(2024, 1, 1, 0, 7))
+
+
+def test_list_calendar_dates_includes_both_ends_across_month() -> None:
+    """跨月的日期區間：含頭尾的每一天。"""
+    assert list_calendar_dates(date(2024, 2, 28), date(2024, 3, 1)) == [date(2024, 2, 28), date(2024, 2, 29), date(2024, 3, 1)]
+
+
+def test_list_calendar_dates_reversed_range_is_empty() -> None:
+    """最後一天早於第一天：回傳空清單。"""
+    assert list_calendar_dates(date(2024, 3, 2), date(2024, 3, 1)) == []

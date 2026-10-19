@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-10-19T15:42:40Z",
+  "generated_at": "2026-10-19T16:05:29Z",
   "period": {
     "start_date": "2024-07-01",
     "end_date": "2026-08-31",
@@ -241,14 +241,14 @@
     "code_files": {
       "analysis/__init__.py": "928d8ec3710e816833cd87c4a9c8e85ef88801310454fd3f5ff88a061043f17c",
       "analysis/arbitrage_plan.py": "ae99918f3507357800941890da36535f46abfc0efb5afec3796f8539131e038f",
-      "analysis/build_factor_weights.py": "a5cb7ba266b4856c26bc6e2e2808c8ebe3570ce930aaa15255be3539a476835c",
+      "analysis/build_factor_weights.py": "4f8134f2c8c0882bbbf22dc3c4d72db75cc8da69438215616811ead0a1d4f145",
       "analysis/daily_revenue.py": "07edfdba2ce866f032345c6ed94be584a7b155912b9a331b17dc5f061e1df209",
       "analysis/external_factors.py": "adeec5ebf8716c83ed64c90258446c6ea62ddad0711815060b774d04a1dc54d6",
-      "analysis/factor_dataset.py": "190b180be190369b53055e640a7088b2fa641d33bc789ba27ece452594c96532",
+      "analysis/factor_dataset.py": "c6f5fc10d0ac323c2f7420b6f2f9a6839d14e5c9e3a5e82f09c4c8c19e2899c0",
       "analysis/factor_weights_report.py": "ee62e6cb173769f1a8b560911c2b95a46ba08999f12819b823815845c2cf6c8d",
       "analysis/input_fingerprint.py": "4bb90f2233118e563bcd7b4dd659d66fee960bb98444852a216fafabb7bca7d5",
       "analysis/mms_csv.py": "da85f218401989cc07fb39f30e574d460a7ca2df2fac0383989248f9eead0b89",
-      "analysis/nem_day.py": "b3e0a8ca8afb97ec449af65c1b8c1a727eddfc50a8a8e11dcd6bd754c0e77b39",
+      "analysis/nem_day.py": "825c909ce42f3f9ed4b73fd315e47ffdfeb41c948e1c1b21392a09a9dafee887",
       "analysis/record_fields.py": "b71ce2a163c83bbc2ef64ccd640b7edec4b7e004caeb71c663ce61a206d95620",
       "analysis/region_factors.py": "9754a4a6ff3b786f0e019df7b42d4c926ed7b02a68c5c70e87f9a7a1e97c5260",
       "analysis/weight_solver.py": "a7dd8c06bd3e64d73fc81e382ac9ba29dab1ab9e81c16d25875d347004552637"
@@ -257,7 +257,7 @@
       "data/external/nsw_battery_units.csv": "5ab648d0c9027f62caef0a73e5929dd31acaac5113516bfd95b73b7e6f67abe4",
       "data/external/sttm_sydney_daily_price.csv": "2058bcc834a34935cb7f513e15fd1a254a94712ae686fb55c2f122f5da292e59"
     },
-    "combined_sha256": "fb9978d05f062d4d54426ac8049a5267187bb7f7f859243441e79fab74a7f53e",
+    "combined_sha256": "af19960898d09b5acae801680f75502fd6c57bf93a00e58df41ed94fd324171b",
     "raw_input_files": [
       {
         "relative_path": "2024-01_2024-12/p5min_region_solution.csv",

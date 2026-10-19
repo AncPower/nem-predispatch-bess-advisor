@@ -21,7 +21,7 @@ from pathlib import Path
 from analysis.arbitrage_plan import BatterySpecification
 from analysis.daily_revenue import average_half_hour_prices, compute_daily_revenue, merge_interval_prices
 from analysis.external_factors import daily_battery_power, parse_battery_units, parse_gas_prices, read_csv_records
-from analysis.factor_dataset import FactorSources, build_factor_dataset
+from analysis.factor_dataset import FactorSources, build_factor_dataset, span_source_dates
 from analysis.factor_weights_report import ReportMetadata, build_report_document
 from analysis.input_fingerprint import build_raw_manifest, compute_source_fingerprint
 from analysis.mms_csv import MmsTableName, iterate_mms_file
@@ -147,7 +147,7 @@ def load_factor_sources(raw_input_files: RawInputFiles, repository_root: Path) -
     )
     gas_prices = parse_gas_prices(read_csv_records(repository_root / GAS_PRICE_RELATIVE_PATH))
     battery_units = parse_battery_units(read_csv_records(repository_root / BATTERY_UNITS_RELATIVE_PATH))
-    battery_power = daily_battery_power(battery_units, daily_revenue.revenue_by_date)
+    battery_power = daily_battery_power(battery_units, span_source_dates(daily_revenue, region_factors, gas_prices))
     pipeline_logger.info("step=external_factors gas_days=%d battery_days=%d", len(gas_prices), len(battery_power))
     return FactorSources(daily_revenue, region_factors, gas_prices, battery_power)
 
