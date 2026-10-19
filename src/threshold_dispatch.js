@@ -5,7 +5,7 @@
  * 來回效率固定 100%、不計損耗。
  */
 
-import { INTERVAL_HOURS } from "./nem_time.js";
+import { INTERVAL_HOURS, is_nem_day_end } from "./nem_time.js";
 
 const ENERGY_TOLERANCE_MWH = 1e-9;
 
@@ -26,6 +26,7 @@ const ENERGY_TOLERANCE_MWH = 1e-9;
  * @property {number} discharged_energy_mwh 放電量
  * @property {number} final_soc_fraction 期末電量比例
  * @property {number[]} interval_energy_mwh 每時段電量變化，正為充、負為放
+ * @property {number[]} stored_energy_mwh 每時段結束時電池內的電量（MWh）
  */
 
 /**
@@ -41,6 +42,7 @@ export function simulate_threshold_dispatch(price_values, battery_spec, price_th
   let stored_energy = battery_spec.initial_soc_fraction * battery_spec.capacity_mwh;
   const totals = { discharge_revenue: 0, charge_cost: 0, charged_energy_mwh: 0, discharged_energy_mwh: 0 };
   const interval_energy_mwh = [];
+  const stored_energy_mwh = [];
   for (const price_value of price_values) {
     const energy_change = decide_interval_energy(price_value, stored_energy, battery_spec.capacity_mwh, maximum_interval_energy, price_thresholds);
     const settled_value = Math.abs(energy_change) * price_value * battery_spec.marginal_loss_factor;
@@ -53,13 +55,49 @@ export function simulate_threshold_dispatch(price_values, battery_spec, price_th
     }
     stored_energy += energy_change;
     interval_energy_mwh.push(energy_change);
+    stored_energy_mwh.push(stored_energy);
   }
   return {
     ...totals,
     net_value: totals.discharge_revenue - totals.charge_cost,
     final_soc_fraction: stored_energy / battery_spec.capacity_mwh,
     interval_energy_mwh,
+    stored_energy_mwh,
   };
+}
+
+/**
+ * @typedef {object} RemainingEnergyMarker
+ * @property {number} interval_index 標示在哪個時段的結束
+ * @property {"day_end" | "horizon_end"} marker_kind 當日結束或預測期結束
+ * @property {number} stored_energy_mwh 剩餘電量（MWh）
+ * @property {number} stored_fraction 剩餘電量占容量的比例
+ */
+
+/**
+ * 找出要在圖上標示剩餘電量的時間點：每個 NEM 日結束（24:00）與預測期最後一個時段，且電池內仍有電。
+ *
+ * @param {{interval_end_minute: number}[]} price_points 依時間排序的時段
+ * @param {number[]} stored_energy_mwh 每時段結束時的電量（與 price_points 等長）
+ * @param {number} capacity_mwh 容量（MWh）
+ * @returns {RemainingEnergyMarker[]} 依時間排序的標示點
+ */
+export function find_remaining_energy_markers(price_points, stored_energy_mwh, capacity_mwh) {
+  const last_index = price_points.length - 1;
+  const remaining_markers = [];
+  price_points.forEach((price_point, interval_index) => {
+    const is_day_end = is_nem_day_end(price_point.interval_end_minute);
+    if (!is_day_end && interval_index !== last_index) return;
+    const stored_energy = stored_energy_mwh[interval_index];
+    if (stored_energy <= ENERGY_TOLERANCE_MWH) return;
+    remaining_markers.push({
+      interval_index,
+      marker_kind: interval_index === last_index ? "horizon_end" : "day_end",
+      stored_energy_mwh: stored_energy,
+      stored_fraction: stored_energy / capacity_mwh,
+    });
+  });
+  return remaining_markers;
 }
 
 /**
