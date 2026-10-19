@@ -1,5 +1,5 @@
 {
-  "description": "select_best_plan 的共用測試案例。JS（tests/select_best_plan_fixture.test.js）與 Python（analysis/tests/test_arbitrage_plan.py）讀同一份，確認兩邊結果相同。預期值由 src/window_selection.js 算出；前 10 個小案例另以手算核對。",
+  "description": "select_best_plan 的共用測試案例。JS（tests/select_best_plan_fixture.test.js）與 Python（analysis/tests/test_arbitrage_plan.py）讀同一份，確認兩邊結果相同。預期值由 src/window_selection.js 算出；前 11 個小案例另以手算核對。",
   "cases": [
     {
       "case_name": "joint_selection_finds_earlier_cycle",
@@ -240,6 +240,38 @@
           }
         ],
         "total_value": 90
+      }
+    },
+    {
+      "case_name": "second_cycle_tie_prefers_earliest_window",
+      "description": "第二個循環有多個同分窗口（2→3、2→5、4→5）時取最早的 2→3",
+      "price_values": [0, 100, 0, 100, 0, 100],
+      "battery_specification": {
+        "power_mw": 2,
+        "capacity_mwh": 1,
+        "marginal_loss_factor": 1
+      },
+      "minimum_cycle_spread": 0,
+      "expected": {
+        "segment_length": 1,
+        "energy_mwh": 1,
+        "cycles": [
+          {
+            "charge_start_index": 0,
+            "discharge_start_index": 1,
+            "charge_average_price": 0,
+            "discharge_average_price": 100,
+            "net_value": 100
+          },
+          {
+            "charge_start_index": 2,
+            "discharge_start_index": 3,
+            "charge_average_price": 0,
+            "discharge_average_price": 100,
+            "net_value": 100
+          }
+        ],
+        "total_value": 200
       }
     },
     {
