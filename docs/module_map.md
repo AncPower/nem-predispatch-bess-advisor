@@ -24,3 +24,17 @@
 | `src/scenario_app.js` | L4 進入點 | 情境工具（`scenario/index.html`）：模擬、校準、讀備註 | — | `history_calibration`, `price_simulation`, `scenario_presets`, `scenario_render`, `special_date_notes`, `spread_strategy` |
 
 外部函式庫由兩個 HTML 從 cdnjs 以全域變數載入：JSZip 3.10.1（預調度工具解壓上傳的 zip）、Chart.js 4.4.1（兩個工具畫圖）。
+
+## 離線分析 `analysis/`（Python）
+
+與網頁分開的 uv 專案（根目錄 `pyproject.toml`），層級規則相同，由 `analysis/tests/test_module_layers.py` 檢查。新增、改名或刪除模組時，同一個 commit 更新本表與該測試的層級表。
+
+| 模組 | 層級 | 職責 | 對外介面 | 依賴 |
+|---|---|---|---|---|
+| `analysis/aemo_csv.py` | L0 基礎 | 串流讀取 AEMO MMS CSV、解析 AEMO 時間字串 | `iterate_selected_columns`, `parse_aemo_timestamp` | — |
+| `analysis/arbitrage_revenue.py` | L1 純計算 | `select_best_plan` 的 Python 版；5 分鐘價平均成 30 分鐘 | `BatterySpec`, `ArbitragePlan`, `PlannedCycle`, `DEFAULT_BATTERY_SPEC`, `select_best_plan`, `average_into_half_hours` | — |
+| `analysis/daily_factors.py` | L1 純計算 | 5 分鐘區域狀態彙整成每日需求、尖峰、供給餘裕、淨進出口 | `RegionSnapshot`, `DailyFactorSummary`, `summarize_daily_factors`, `interval_start_date`, `FIVE_MINUTE_INTERVALS_PER_DAY`, `DEMAND_MEAN_FACTOR`, `EVENING_PEAK_DEMAND_FACTOR`, `SUPPLY_MARGIN_FACTOR`, `NET_INTERCHANGE_FACTOR` | — |
+| `analysis/battery_fleet.py` | L1 純計算 | NSW 電池月底放電功率 | `BatteryUnitRecord`, `BATTERY_POWER_FACTOR`, `fleet_power_on`, `month_end_power_by_date` | — |
+| `analysis/factor_weights.py` | L1 純計算 | 標準化、Spearman 方向、HiGHS L1 求權重、每月基準值 | `fit_factor_weights`, `solve_l1_weights`, `L1Solution`, `FactorWeight`, `FactorWeightFit`, `FitQuality`, `standardize_values`, `rank_values`, `spearman_correlation`, `transform_revenue`, `monthly_medians` | `highspy`, `numpy` |
+| `analysis/local_sources.py` | L2 資料來源 | 讀 AEMO `input/` 與 `data/external/`，在邊界轉成型別明確的資料 | `REPOSITORY_ROOT`, `INPUT_DIRECTORY_VARIABLE`, `resolve_input_directory`, `read_daily_five_minute_prices`, `read_region_snapshots`, `read_gas_prices`, `read_battery_units` | `aemo_csv`, `battery_fleet`, `daily_factors` |
+| `analysis/build_factor_weights.py` | L3 進入點 | 命令列：串起整條流程，寫出 `data/factor_weights.json` | `main`, `run_pipeline`, `round_weights_to_unit_sum` | `arbitrage_revenue`, `battery_fleet`, `daily_factors`, `factor_weights`, `local_sources` |
