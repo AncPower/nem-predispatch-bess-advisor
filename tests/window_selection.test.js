@@ -127,3 +127,78 @@ test("suggest_price_thresholds: 取淨收益最高的循環，不是時間上第
   assert.equal(plan_result.cycles.length, 2);
   assert.deepEqual(price_thresholds, { charge_price_cap: 0, price_spread: 300 });
 });
+
+test("select_best_plan: 小循環的價差低於門檻時只排一個", () => {
+  const price_values = [100, 102, 0, 300];
+
+  const plan_result = select_best_plan(price_values, ONE_INTERVAL_BATTERY, 10);
+
+  assert.deepEqual(
+    plan_result.cycles.map((planned_cycle) => [planned_cycle.charge_start_index, planned_cycle.discharge_start_index]),
+    [[2, 3]],
+  );
+  assert.equal(plan_result.total_value, 300);
+});
+
+test("select_best_plan: 價差剛好等於門檻時仍排入", () => {
+  const plan_result = select_best_plan([100, 102, 0, 300], ONE_INTERVAL_BATTERY, 2);
+
+  assert.equal(plan_result.cycles.length, 2);
+});
+
+test("select_best_plan: 門檻高於所有價差時不排", () => {
+  const plan_result = select_best_plan([0, 100], ONE_INTERVAL_BATTERY, 101);
+
+  assert.deepEqual(plan_result.cycles, []);
+});
+
+test("select_best_plan: 門檻為負或非數值時拋出錯誤", () => {
+  assert.throws(() => select_best_plan([0, 100], ONE_INTERVAL_BATTERY, -1), /最低價差/);
+  assert.throws(() => select_best_plan([0, 100], ONE_INTERVAL_BATTERY, Number.NaN), /最低價差/);
+});
+
+/** 固定種子的亂數，讓比對測試可重現。 */
+function create_seeded_random(seed_value) {
+  let random_state = seed_value;
+  return () => {
+    random_state = (random_state * 1_103_515_245 + 12_345) % 2_147_483_648;
+    return random_state / 2_147_483_648;
+  };
+}
+
+/** 暴力列舉所有一與兩循環組合的最高總價差（每段價格總和差）。 */
+function brute_force_best_score(price_values, segment_length, minimum_cycle_spread) {
+  const segment_sum = (start_index) => price_values.slice(start_index, start_index + segment_length).reduce((left, right) => left + right, 0);
+  const last_start = price_values.length - segment_length;
+  const valid_cycles = [];
+  for (let charge_start = 0; charge_start <= last_start; charge_start++) {
+    for (let discharge_start = charge_start + segment_length; discharge_start <= last_start; discharge_start++) {
+      const cycle_score = segment_sum(discharge_start) - segment_sum(charge_start);
+      if (cycle_score > 0 && cycle_score >= minimum_cycle_spread * segment_length) valid_cycles.push({ charge_start, discharge_start, cycle_score });
+    }
+  }
+  let best_score = 0;
+  for (const first_cycle of valid_cycles) {
+    best_score = Math.max(best_score, first_cycle.cycle_score);
+    for (const second_cycle of valid_cycles) {
+      if (second_cycle.charge_start >= first_cycle.discharge_start + segment_length) {
+        best_score = Math.max(best_score, first_cycle.cycle_score + second_cycle.cycle_score);
+      }
+    }
+  }
+  return best_score;
+}
+
+test("select_best_plan: 隨機電價下與暴力解的最佳總價差相同", () => {
+  const next_random = create_seeded_random(20261019);
+  const two_interval_battery = { power_mw: 2, capacity_mwh: 2, marginal_loss_factor: 1 };
+  for (let case_index = 0; case_index < 200; case_index++) {
+    const price_values = Array.from({ length: 6 + Math.floor(next_random() * 14) }, () => Math.round(next_random() * 400 - 100));
+    const minimum_cycle_spread = Math.round(next_random() * 60);
+
+    const plan_result = select_best_plan(price_values, two_interval_battery, minimum_cycle_spread);
+
+    const expected_score = brute_force_best_score(price_values, 2, minimum_cycle_spread);
+    assert.equal(plan_result.total_value, expected_score, `case ${case_index}: ${price_values}`);
+  }
+});

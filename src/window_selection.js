@@ -2,17 +2,15 @@
  * 在預調度電價上選出建議充放電窗（純計算，不連網路、不碰畫面）。
  *
  * 每段窗口長度相同（容量 ÷ 功率）、連續、滿功率、不重疊且依序排列。一個循環是「充、放」兩段，
- * 兩個循環是「充、放、充、放」四段一起選，以動態規劃求「放電段總價 − 充電段總價」的精確最大值。
- * 同分時取最早的組合；一個與兩個循環同分時取一個；沒有任何組合能獲利時不排。
+ * 兩個循環是「充、放、充、放」四段一起選，求「放電段總價 − 充電段總價」的精確最大值。
+ * 每個循環的價差（放電段均價 − 充電段均價）必須為正，且不低於每循環最低價差。
+ * 同分時取最早的組合；一個與兩個循環同分時取一個；沒有任何組合符合時不排。
  * 來回效率固定 100%、不計損耗，所以收益只看價差。
  */
 
 import { INTERVAL_HOURS } from "./nem_time.js";
 
 const PRICE_SCALE_FACTOR = 1_000_000;
-const KIND_SIGN = Object.freeze({ charge: -1, discharge: 1 });
-const SINGLE_CYCLE_PATTERN = Object.freeze(["charge", "discharge"]);
-const DOUBLE_CYCLE_PATTERN = Object.freeze(["charge", "discharge", "charge", "discharge"]);
 
 /**
  * @typedef {object} BatterySpec
@@ -31,6 +29,10 @@ const DOUBLE_CYCLE_PATTERN = Object.freeze(["charge", "discharge", "charge", "di
  */
 
 /**
+ * @typedef {{charge_start: number, discharge_start: number, cycle_score: number}} CandidateCycle
+ */
+
+/**
  * 每段窗口的時段數：滿充所需時間 ÷ 30 分鐘，至少 1 段。
  *
  * @param {BatterySpec} battery_spec 電池規格
@@ -45,40 +47,29 @@ export function segment_length_for(battery_spec) {
  *
  * @param {number[]} price_values 依時間排序的 30 分鐘電價（AUD/MWh）
  * @param {BatterySpec} battery_spec 電池規格
+ * @param {number} [minimum_cycle_spread] 每循環最低價差（AUD/MWh），預設 0
  * @returns {{segment_length: number, energy_mwh: number, cycles: PlannedCycle[], total_value: number}}
- * @throws {Error} 電價含非有限數值時
+ * @throws {Error} 電價含非有限數值，或最低價差為負或非數值時
  */
-export function select_best_plan(price_values, battery_spec) {
+export function select_best_plan(price_values, battery_spec, minimum_cycle_spread = 0) {
   if (price_values.some((price_value) => !Number.isFinite(price_value))) {
     throw new Error("選窗用的電價含有非數值");
+  }
+  if (!Number.isFinite(minimum_cycle_spread) || minimum_cycle_spread < 0) {
+    throw new Error(`每循環最低價差必須是 0 以上的數值：${minimum_cycle_spread}`);
   }
   const segment_length = segment_length_for(battery_spec);
   const energy_mwh = Math.min(battery_spec.capacity_mwh, battery_spec.power_mw * segment_length * INTERVAL_HOURS);
   const scaled_prices = price_values.map((price_value) => Math.round(price_value * PRICE_SCALE_FACTOR));
   const segment_sums = compute_segment_sums(scaled_prices, segment_length);
-  const best_solution = choose_best_solution(segment_sums, segment_length);
-  const cycles = best_solution
-    ? build_cycles(best_solution.segment_starts, segment_sums, segment_length, energy_mwh, battery_spec.marginal_loss_factor)
-    : [];
+  const minimum_cycle_score = Math.round(minimum_cycle_spread * PRICE_SCALE_FACTOR) * segment_length;
+  const candidate_cycles = enumerate_candidate_cycles(segment_sums, segment_length, minimum_cycle_score);
+  const chosen_cycles = choose_best_cycles(candidate_cycles, segment_sums.length, segment_length);
+  const cycles = chosen_cycles.map((candidate_cycle) =>
+    build_cycle(candidate_cycle, segment_sums, segment_length, energy_mwh, battery_spec.marginal_loss_factor),
+  );
   const total_value = cycles.reduce((value_sum, planned_cycle) => value_sum + planned_cycle.net_value, 0);
   return { segment_length, energy_mwh, cycles, total_value };
-}
-
-/**
- * 一個循環與兩個循環各求最佳解，取總分為正且最高者；同分取循環數少的。
- *
- * @param {number[]} segment_sums 每個起點的段內價格總和（放大後的整數）
- * @param {number} segment_length 每段時段數
- * @returns {{total_score: number, segment_starts: number[]} | null} 最佳解，沒有獲利組合時為 null
- */
-function choose_best_solution(segment_sums, segment_length) {
-  let best_solution = null;
-  for (const pattern of [SINGLE_CYCLE_PATTERN, DOUBLE_CYCLE_PATTERN]) {
-    const pattern_solution = solve_pattern(segment_sums, pattern, segment_length);
-    if (!pattern_solution || pattern_solution.total_score <= 0) continue;
-    if (!best_solution || pattern_solution.total_score > best_solution.total_score) best_solution = pattern_solution;
-  }
-  return best_solution;
 }
 
 /**
@@ -100,128 +91,95 @@ function compute_segment_sums(scaled_prices, segment_length) {
 }
 
 /**
- * 依指定段型（例如充、放、充、放）求最佳起點組合。
+ * 列出所有符合條件的「充電段、放電段」配對，依（充電起點、放電起點）由早到晚排序。
  *
  * @param {number[]} segment_sums 每個起點的段內價格總和
- * @param {readonly string[]} pattern 段型
  * @param {number} segment_length 每段時段數
- * @returns {{total_score: number, segment_starts: number[]} | null} 放不下時為 null
+ * @param {number} minimum_cycle_score 每循環最低的段總和差（放大後的整數）
+ * @returns {CandidateCycle[]} 價差為正且不低於門檻的配對
  */
-function solve_pattern(segment_sums, pattern, segment_length) {
-  const required_intervals = segment_length * pattern.length;
-  if (segment_sums.length + segment_length - 1 < required_intervals) return null;
-  const suffix_tables = build_suffix_tables(segment_sums, pattern, segment_length);
-  const segment_starts = reconstruct_starts(segment_sums, pattern, segment_length, suffix_tables);
-  return { total_score: suffix_tables[0][0], segment_starts };
-}
-
-/**
- * 第 j 段起點為 s 時，第 j 段到最後一段的總分；接不上後續段時為負無限大。
- *
- * @param {number[]} segment_sums 每個起點的段內價格總和
- * @param {string} segment_kind 本段種類（charge 或 discharge）
- * @param {number} segment_length 每段時段數
- * @param {number[] | undefined} later_best_scores 下一段的後綴最大值表，本段為最後一段時為 undefined
- * @returns {number[]} 每個起點的總分
- */
-function score_from_segment(segment_sums, segment_kind, segment_length, later_best_scores) {
-  const kind_sign = KIND_SIGN[segment_kind];
-  return segment_sums.map((segment_sum, start_index) => {
-    const own_score = kind_sign * segment_sum;
-    if (!later_best_scores) return own_score;
-    const next_start_index = start_index + segment_length;
-    return next_start_index < later_best_scores.length
-      ? own_score + later_best_scores[next_start_index]
-      : Number.NEGATIVE_INFINITY;
-  });
-}
-
-/**
- * 由最後一段往前建表：`tables[j][s]` 為第 j 段起點不早於 s 時，第 j 段到最後一段的最大總分。
- *
- * @param {number[]} segment_sums 每個起點的段內價格總和
- * @param {readonly string[]} pattern 段型
- * @param {number} segment_length 每段時段數
- * @returns {number[][]} 每段的後綴最大值表
- */
-function build_suffix_tables(segment_sums, pattern, segment_length) {
-  const suffix_tables = new Array(pattern.length);
-  for (let segment_index = pattern.length - 1; segment_index >= 0; segment_index--) {
-    const total_scores = score_from_segment(
-      segment_sums,
-      pattern[segment_index],
-      segment_length,
-      suffix_tables[segment_index + 1],
-    );
-    suffix_tables[segment_index] = suffix_maximum(total_scores);
+function enumerate_candidate_cycles(segment_sums, segment_length, minimum_cycle_score) {
+  const candidate_cycles = [];
+  for (let charge_start = 0; charge_start < segment_sums.length; charge_start++) {
+    for (let discharge_start = charge_start + segment_length; discharge_start < segment_sums.length; discharge_start++) {
+      const cycle_score = segment_sums[discharge_start] - segment_sums[charge_start];
+      if (cycle_score > 0 && cycle_score >= minimum_cycle_score) {
+        candidate_cycles.push({ charge_start, discharge_start, cycle_score });
+      }
+    }
   }
-  return suffix_tables;
+  return candidate_cycles;
 }
 
 /**
- * `result[s]` 為起點 s 以後（含）的最大值。
+ * 比較最佳單循環與最佳雙循環；雙循環必須嚴格較高才採用。
  *
- * @param {number[]} score_values 每個起點的分數
- * @returns {number[]} 後綴最大值
- */
-function suffix_maximum(score_values) {
-  const suffix_values = score_values.slice();
-  for (let start_index = suffix_values.length - 2; start_index >= 0; start_index--) {
-    suffix_values[start_index] = Math.max(suffix_values[start_index], suffix_values[start_index + 1]);
-  }
-  return suffix_values;
-}
-
-/**
- * 由第一段往後還原：每段取達到最佳總分的最早起點。
- *
- * @param {number[]} segment_sums 每個起點的段內價格總和
- * @param {readonly string[]} pattern 段型
+ * @param {CandidateCycle[]} candidate_cycles 依起點排序的候選配對
+ * @param {number} start_count 合法起點數
  * @param {number} segment_length 每段時段數
- * @param {number[][]} suffix_tables 後綴最大值表
- * @returns {number[]} 每段的起點索引
+ * @returns {CandidateCycle[]} 選中的 0 到 2 個循環
  */
-function reconstruct_starts(segment_sums, pattern, segment_length, suffix_tables) {
-  const segment_starts = [];
-  let earliest_start = 0;
-  for (let segment_index = 0; segment_index < pattern.length; segment_index++) {
-    const target_score = suffix_tables[segment_index][earliest_start];
-    const candidate_scores = score_from_segment(
-      segment_sums,
-      pattern[segment_index],
-      segment_length,
-      suffix_tables[segment_index + 1],
-    );
-    let chosen_start = earliest_start;
-    while (candidate_scores[chosen_start] !== target_score) chosen_start++;
-    segment_starts.push(chosen_start);
-    earliest_start = chosen_start + segment_length;
+function choose_best_cycles(candidate_cycles, start_count, segment_length) {
+  if (candidate_cycles.length === 0) return [];
+  const best_single = candidate_cycles.reduce((best_cycle, candidate_cycle) =>
+    candidate_cycle.cycle_score > best_cycle.cycle_score ? candidate_cycle : best_cycle,
+  );
+  const best_from_start = build_best_from_start(candidate_cycles, start_count);
+  let best_pair = null;
+  for (const first_cycle of candidate_cycles) {
+    const second_cycle = best_from_start[first_cycle.discharge_start + segment_length];
+    if (!second_cycle) continue;
+    const pair_score = first_cycle.cycle_score + second_cycle.cycle_score;
+    if (!best_pair || pair_score > best_pair.pair_score) best_pair = { pair_score, cycles: [first_cycle, second_cycle] };
   }
-  return segment_starts;
+  return best_pair && best_pair.pair_score > best_single.cycle_score ? best_pair.cycles : [best_single];
 }
 
 /**
- * 把起點索引兩兩配成循環，換算均價與淨收益。
+ * `result[t]` 為充電起點不早於 t 的最佳配對，同分取最早；沒有時為 undefined。
  *
- * @param {number[]} segment_starts 依序的充、放起點
+ * @param {CandidateCycle[]} candidate_cycles 依起點排序的候選配對
+ * @param {number} start_count 合法起點數
+ * @returns {(CandidateCycle | undefined)[]} 長度為 start_count + 1 的後綴表
+ */
+function build_best_from_start(candidate_cycles, start_count) {
+  const best_from_start = new Array(start_count + 1).fill(undefined);
+  for (let candidate_index = candidate_cycles.length - 1; candidate_index >= 0; candidate_index--) {
+    const candidate_cycle = candidate_cycles[candidate_index];
+    const current_best = best_from_start[candidate_cycle.charge_start];
+    if (!current_best || candidate_cycle.cycle_score >= current_best.cycle_score) {
+      best_from_start[candidate_cycle.charge_start] = candidate_cycle;
+    }
+  }
+  for (let start_index = start_count - 1; start_index >= 0; start_index--) {
+    const later_best = best_from_start[start_index + 1];
+    const own_best = best_from_start[start_index];
+    if (later_best && (!own_best || later_best.cycle_score > own_best.cycle_score)) best_from_start[start_index] = later_best;
+  }
+  return best_from_start;
+}
+
+/**
+ * 把候選配對換算成均價與淨收益。
+ *
+ * @param {CandidateCycle} candidate_cycle 選中的配對
  * @param {number[]} segment_sums 每個起點的段內價格總和
  * @param {number} segment_length 每段時段數
  * @param {number} energy_mwh 每次充放的電量
  * @param {number} marginal_loss_factor 損失係數
- * @returns {PlannedCycle[]} 循環清單
+ * @returns {PlannedCycle} 循環
  */
-function build_cycles(segment_starts, segment_sums, segment_length, energy_mwh, marginal_loss_factor) {
+function build_cycle(candidate_cycle, segment_sums, segment_length, energy_mwh, marginal_loss_factor) {
   const average_price_at = (start_index) => segment_sums[start_index] / segment_length / PRICE_SCALE_FACTOR;
-  const planned_cycles = [];
-  for (let pair_index = 0; pair_index < segment_starts.length; pair_index += 2) {
-    const charge_start_index = segment_starts[pair_index];
-    const discharge_start_index = segment_starts[pair_index + 1];
-    const charge_average_price = average_price_at(charge_start_index);
-    const discharge_average_price = average_price_at(discharge_start_index);
-    const net_value = energy_mwh * marginal_loss_factor * (discharge_average_price - charge_average_price);
-    planned_cycles.push({ charge_start_index, discharge_start_index, charge_average_price, discharge_average_price, net_value });
-  }
-  return planned_cycles;
+  const charge_average_price = average_price_at(candidate_cycle.charge_start);
+  const discharge_average_price = average_price_at(candidate_cycle.discharge_start);
+  return {
+    charge_start_index: candidate_cycle.charge_start,
+    discharge_start_index: candidate_cycle.discharge_start,
+    charge_average_price,
+    discharge_average_price,
+    net_value: energy_mwh * marginal_loss_factor * (discharge_average_price - charge_average_price),
+  };
 }
 
 /**
