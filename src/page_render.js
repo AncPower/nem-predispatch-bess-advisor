@@ -11,6 +11,10 @@ const CHART_VALUE_PADDING = 10;
 const PRICE_DATASET_INDEX = 4;
 const SWEEP_MAXIMUM_TICKS = 9;
 const PRICE_MAXIMUM_TICKS = 10;
+const MARKER_ROW_HEIGHT = 16;
+const MARKER_MAXIMUM_ROWS = 2;
+const MARKER_TEXT_GAP = 4;
+const MARKER_KIND_TEXT = Object.freeze({ day_end: "當日結束", horizon_end: "預測期末" });
 
 /**
  * 澳幣金額，負數以「−」開頭。
@@ -107,11 +111,11 @@ export function render_kpi_row(kpi_container, dispatch_result, suggested_total_v
 }
 
 /**
- * 畫預調度電價圖，含自訂條件下的充放電區間與兩條門檻線。
+ * 畫預調度電價圖，含自訂條件下的充放電區間、兩條門檻線，以及當日結束與預測期末仍有電時的剩餘電量。
  *
  * @param {HTMLCanvasElement} chart_canvas 畫布
  * @param {object | null} previous_chart 上一次的圖表，會先銷毀
- * @param {{price_points: object[], interval_energy_mwh: number[], charge_price_cap: number, discharge_price_floor: number}} chart_input 資料
+ * @param {{price_points: object[], interval_energy_mwh: number[], charge_price_cap: number, discharge_price_floor: number, remaining_markers: import("./threshold_dispatch.js").RemainingEnergyMarker[]}} chart_input 資料
  * @returns {object} 新的 Chart.js 圖表
  */
 export function draw_price_chart(chart_canvas, previous_chart, chart_input) {
@@ -138,10 +142,86 @@ export function draw_price_chart(chart_canvas, previous_chart, chart_input) {
         { data: price_values, borderColor: read_css_token("--line"), borderWidth: 2, pointRadius: 0, stepped: "before", order: 1 },
       ],
     },
-    options: build_price_chart_options(axis_minimum, axis_maximum),
+    options: build_price_chart_options(axis_minimum, axis_maximum, chart_input.remaining_markers),
+    plugins: [REMAINING_ENERGY_PLUGIN],
   };
   previous_chart?.destroy();
   return new window.Chart(chart_canvas, chart_configuration);
+}
+
+/**
+ * 剩餘電量標籤文字。
+ *
+ * @param {import("./threshold_dispatch.js").RemainingEnergyMarker} remaining_marker 標示點
+ * @returns {string} 例如「當日結束 剩餘 5.0 MWh（25%）」
+ */
+export function format_remaining_energy_label(remaining_marker) {
+  return `${MARKER_KIND_TEXT[remaining_marker.marker_kind]} 剩餘 ${format_number(remaining_marker.stored_energy_mwh, 1)} MWh（${format_number(remaining_marker.stored_fraction * 100)}%）`;
+}
+
+/** Chart.js 外掛：在時段結束處畫虛線，並在圖表上方的保留帶寫剩餘電量；標籤重疊時往上一列。 */
+const REMAINING_ENERGY_PLUGIN = Object.freeze({
+  id: "remaining_energy_markers",
+  afterDatasetsDraw(chart_instance, _draw_arguments, plugin_options) {
+    const remaining_markers = plugin_options.markers ?? [];
+    if (remaining_markers.length === 0) return;
+    const drawing_context = chart_instance.ctx;
+    const chart_area = chart_instance.chartArea;
+    const category_width = chart_instance.scales.x.width / chart_instance.data.labels.length;
+    const placed_boxes = [];
+    drawing_context.save();
+    drawing_context.font = plugin_options.font_text;
+    drawing_context.textBaseline = "bottom";
+    for (const remaining_marker of remaining_markers) {
+      const marker_x = chart_instance.scales.x.getPixelForValue(remaining_marker.interval_index) + category_width / 2;
+      draw_marker_line(drawing_context, chart_area, marker_x, plugin_options.line_color);
+      const label_box = place_marker_label(drawing_context, chart_area, marker_x, format_remaining_energy_label(remaining_marker), placed_boxes);
+      drawing_context.fillStyle = plugin_options.text_color;
+      drawing_context.fillText(label_box.label_text, label_box.left_x, label_box.bottom_y);
+      placed_boxes.push(label_box);
+    }
+    drawing_context.restore();
+  },
+});
+
+/**
+ * 在時段結束處畫一條垂直虛線。
+ *
+ * @param {CanvasRenderingContext2D} drawing_context 畫布
+ * @param {{top: number, bottom: number}} chart_area 繪圖區
+ * @param {number} marker_x 橫座標
+ * @param {string} line_color 線色
+ */
+function draw_marker_line(drawing_context, chart_area, marker_x, line_color) {
+  drawing_context.strokeStyle = line_color;
+  drawing_context.lineWidth = 1;
+  drawing_context.setLineDash([3, 3]);
+  drawing_context.beginPath();
+  drawing_context.moveTo(marker_x, chart_area.top - MARKER_TEXT_GAP);
+  drawing_context.lineTo(marker_x, chart_area.bottom);
+  drawing_context.stroke();
+  drawing_context.setLineDash([]);
+}
+
+/**
+ * 決定標籤位置：靠右邊界時改放在虛線左側；和已放的標籤重疊就往上一列。
+ *
+ * @param {CanvasRenderingContext2D} drawing_context 畫布（用來量字寬）
+ * @param {{top: number, left: number, right: number}} chart_area 繪圖區
+ * @param {number} marker_x 虛線橫座標
+ * @param {string} label_text 文字
+ * @param {{left_x: number, right_x: number, row_index: number}[]} placed_boxes 已放的標籤
+ * @returns {{label_text: string, left_x: number, right_x: number, bottom_y: number, row_index: number}} 標籤位置
+ */
+function place_marker_label(drawing_context, chart_area, marker_x, label_text, placed_boxes) {
+  const text_width = drawing_context.measureText(label_text).width;
+  const fits_on_right = marker_x + MARKER_TEXT_GAP + text_width <= chart_area.right;
+  const left_x = fits_on_right ? marker_x + MARKER_TEXT_GAP : Math.max(chart_area.left, marker_x - MARKER_TEXT_GAP - text_width);
+  const right_x = left_x + text_width;
+  let row_index = 0;
+  const overlaps_row = (candidate_row) => placed_boxes.some((placed_box) => placed_box.row_index === candidate_row && left_x < placed_box.right_x + MARKER_TEXT_GAP && placed_box.left_x < right_x + MARKER_TEXT_GAP);
+  while (row_index < MARKER_MAXIMUM_ROWS - 1 && overlaps_row(row_index)) row_index++;
+  return { label_text, left_x, right_x, bottom_y: chart_area.top - MARKER_TEXT_GAP - row_index * MARKER_ROW_HEIGHT, row_index };
 }
 
 /**
@@ -149,14 +229,23 @@ export function draw_price_chart(chart_canvas, previous_chart, chart_input) {
  *
  * @param {number} axis_minimum 縱軸下限
  * @param {number} axis_maximum 縱軸上限
+ * @param {import("./threshold_dispatch.js").RemainingEnergyMarker[]} remaining_markers 剩餘電量標示點
  * @returns {object} Chart.js options
  */
-function build_price_chart_options(axis_minimum, axis_maximum) {
+function build_price_chart_options(axis_minimum, axis_maximum, remaining_markers) {
   const tick_color = read_css_token("--ink-3");
+  const marker_rows = Math.min(remaining_markers.length, MARKER_MAXIMUM_ROWS);
   return {
     responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: "index", intersect: false },
+    layout: { padding: { top: marker_rows * MARKER_ROW_HEIGHT + MARKER_TEXT_GAP } },
     plugins: {
       legend: { display: false },
+      remaining_energy_markers: {
+        markers: remaining_markers,
+        line_color: read_css_token("--ink-3"),
+        text_color: read_css_token("--ink-2"),
+        font_text: `500 12px ${getComputedStyle(document.body).fontFamily}`,
+      },
       tooltip: { filter: (tooltip_item) => tooltip_item.datasetIndex === PRICE_DATASET_INDEX, callbacks: { label: (tooltip_item) => `電價 ${format_aud(tooltip_item.parsed.y)}/MWh` } },
     },
     scales: {
