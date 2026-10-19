@@ -46,6 +46,24 @@
 - 四小時電池，預設 5 MW／20 MWh；來回效率固定 100%，不計損耗。
 - 歷史校準以最小平方法擬合日型態的四個係數，再算尖峰日比例、天氣波動度與四小時價差中位數。檔案含多個區域時用 NSW1。
 
+## 因素權重
+
+`data/factor_weights.json` 記錄六個因素對每日套利收益的權重，給情境工具當建議基準值（#12）。它由離線分析層 `analysis/` 用 AEMO 歷史資料算出，網頁只讀結果：
+
+| 項目 | 內容 |
+|---|---|
+| 被解釋變數 | 每天用 `select_best_plan`（5 MW／20 MWh、MLF 1）算出的套利收益，取 log(1 + 收益) |
+| 因素 | 日均需求、晚間尖峰需求、最小供給餘裕、日均淨進出口、雪梨天然氣事前價、NSW 電池放電功率；氣溫、太陽能與風力、屋頂型太陽能、特殊事件（#14）還沒加入，權重記為 0 |
+| 求解 | HiGHS 最小絕對誤差迴歸，權重非負、加總為 1，另外輸出 scale 與截距 |
+
+模型、欄位與每個來源的細節在 [`docs/data_sources.md`](docs/data_sources.md)。原始資料約 1.9 GB，不在 repo 裡；重新產生要在 repo 根目錄執行：
+
+```bash
+NEM_INPUT_DIRECTORY=<原始資料目錄> uv run python -m analysis.build_factor_weights
+```
+
+改了 `analysis/` 的程式或 `data/external/` 卻沒重新產生 JSON，CI 的 `analysis` job 會失敗。
+
 ## 本機執行
 
 頁面用 ES module 載入 `src/`，要經過 HTTP 才開得起來，直接開 HTML 檔案不行：
@@ -77,7 +95,7 @@ CI 在每個 PR 跑這兩組測試（`.github/workflows/ci.yml` 的 `test` 與 `
 
 ## 檔案結構
 
-各模組的職責與依賴在 [`docs/module_map.md`](docs/module_map.md)。`analysis/` 是 #11 的離線分析層：目前有 MMS CSV 解析、`select_best_plan` 的 Python 版，以及由 5 分鐘電價算每日套利收益；因素與權重求解之後加入。所有資料來源的網址、內容、意義與用在哪條公式在 [`docs/data_sources.md`](docs/data_sources.md)；外部資料的存檔放在 `data/external/`。
+各模組的職責與依賴在 [`docs/module_map.md`](docs/module_map.md)。`analysis/` 是 #11 的離線分析層，輸出 `data/factor_weights.json`，見上方〈因素權重〉。所有資料來源的網址、內容、意義與用在哪條公式在 [`docs/data_sources.md`](docs/data_sources.md)；外部資料的存檔放在 `data/external/`。
 
 ## 發佈
 
