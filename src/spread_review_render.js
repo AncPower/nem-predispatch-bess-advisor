@@ -12,7 +12,6 @@ const PRICE_UNIT = "AUD/MWh";
 const PERCENT_DECIMALS = 2;
 const SPREAD_DECIMALS = 2;
 const RETENTION_PERCENT_TEXT = `${RETENTION_TARGET * 100}%`;
-const SERIES_NAMES = Object.freeze(["歷史淨收益", "目前標準", `最高值的 ${RETENTION_PERCENT_TEXT}`]);
 
 /**
  * @typedef {object} ReviewContext
@@ -24,6 +23,7 @@ const SERIES_NAMES = Object.freeze(["歷史淨收益", "目前標準", `最高�
  * @property {import("./shared_configuration.js").BatteryConfiguration | null} battery_configuration 設備參數，讀不到時為 null
  * @property {string} battery_error 設備參數的讀取錯誤，沒有錯誤為空字串
  * @property {ReturnType<typeof import("./spread_review.js").summarize_break_even_spreads>} cost_summary 損益兩平價差摘要
+ * @property {boolean} [is_trial] 檢討用的是試算標準（輸入欄），不是設定檔的目前標準
  */
 
 /**
@@ -42,9 +42,16 @@ const SERIES_NAMES = Object.freeze(["歷史淨收益", "目前標準", `最高�
  * @returns {ReviewDescription} 畫面文字
  */
 export function describe_spread_review(spread_review, review_context) {
+  const is_trial = review_context.is_trial === true;
+  const standard_label = standard_label_for(is_trial);
   const current_text = `${format_standard(spread_review.current_standard)} ${PRICE_UNIT}`;
-  const verdict_copy = build_verdict_copy(spread_review, current_text);
-  const kpi_items = [{ label: "目前標準", value: current_text, detail: `${review_context.spread_standard.effective_date} 生效` }];
+  const configured_text = `${format_standard(review_context.spread_standard.spread_standard_aud_per_mwh)} ${PRICE_UNIT}`;
+  const verdict_copy = build_verdict_copy(spread_review, `${standard_label} ${current_text}`, is_trial);
+  const kpi_items = [{
+    label: standard_label,
+    value: current_text,
+    detail: is_trial ? `未寫入設定；目前標準 ${configured_text}` : `${review_context.spread_standard.effective_date} 生效`,
+  }];
   if (spread_review.status === "keep" || spread_review.status === "lower") {
     const current_outcome = spread_review.current_outcome;
     kpi_items.push(
@@ -64,7 +71,7 @@ export function describe_spread_review(spread_review, review_context) {
   } else {
     kpi_items.push({ label: "有效天數", value: `${spread_review.valid_day_count} 天`, detail: "不提供調整建議" });
   }
-  return { ...verdict_copy, kpi_items, note_lines: build_note_lines(spread_review, review_context) };
+  return { ...verdict_copy, kpi_items, note_lines: build_note_lines(spread_review, review_context, configured_text) };
 }
 
 /**
@@ -95,16 +102,18 @@ export function render_spread_review(review_elements, review_description) {
 }
 
 /**
- * 畫「價差標準 vs 歷史淨收益」：每個候選標準一點，標出目前標準與最高值 × `RETENTION_TARGET` 的水平線。
+ * 畫「價差標準 vs 歷史淨收益」：每個候選標準一點，標出目前（或試算）標準與最高值 × `RETENTION_TARGET` 的水平線。
  *
  * @param {HTMLCanvasElement} chart_canvas 畫布
  * @param {object | null} previous_chart 上一次的圖表
  * @param {import("./spread_review.js").SpreadReview} spread_review 檢討結果
+ * @param {boolean} [is_trial] 標記的是試算標準
  * @returns {object | null} 新的 Chart.js 圖表；沒有候選標準時不畫，回傳 null
  */
-export function draw_spread_review_chart(chart_canvas, previous_chart, spread_review) {
+export function draw_spread_review_chart(chart_canvas, previous_chart, spread_review, is_trial = false) {
   previous_chart?.destroy();
   if (spread_review.sweep_points.length === 0) return null;
+  const series_names = ["歷史淨收益", standard_label_for(is_trial), `最高值的 ${RETENTION_PERCENT_TEXT}`];
   const tick_color = read_css_token("--ink-3");
   const last_standard = spread_review.sweep_points.at(-1).spread_standard;
   const retention_value = spread_review.maximum_value_aud * RETENTION_TARGET;
@@ -133,7 +142,7 @@ export function draw_spread_review_chart(chart_canvas, previous_chart, spread_re
         tooltip: {
           callbacks: {
             title: (tooltip_items) => `價差標準 ${format_standard(tooltip_items[0].parsed.x)} ${PRICE_UNIT}`,
-            label: (tooltip_item) => `${SERIES_NAMES[tooltip_item.datasetIndex]}：${format_money(tooltip_item.parsed.y, CURRENCY_CODE)}`,
+            label: (tooltip_item) => `${series_names[tooltip_item.datasetIndex]}：${format_money(tooltip_item.parsed.y, CURRENCY_CODE)}`,
           },
         },
       },
@@ -150,10 +159,11 @@ export function draw_spread_review_chart(chart_canvas, previous_chart, spread_re
  * 結論的標題與說明。
  *
  * @param {import("./spread_review.js").SpreadReview} spread_review 檢討結果
- * @param {string} current_text 目前標準的顯示文字
+ * @param {string} standard_text 標準名稱與數值，例如「目前標準 50 AUD/MWh」
+ * @param {boolean} is_trial 是否為試算
  * @returns {{title_text: string, body_text: string}} 文字
  */
-function build_verdict_copy(spread_review, current_text) {
+function build_verdict_copy(spread_review, standard_text, is_trial) {
   if (spread_review.status === "no_data") {
     return { title_text: "選定期間沒有可用的日子，不提供調整建議", body_text: "請調整期間或事件檢視；資料不完整而排除的日子不納入檢討。" };
   }
@@ -165,16 +175,17 @@ function build_verdict_copy(spread_review, current_text) {
   }
   const outcome = spread_review.current_outcome;
   const highest_text = `${format_standard(spread_review.highest_retained_standard)} ${PRICE_UNIT}`;
-  const caveat_text = "這是歷史最佳計畫（事後電價）的保留率，不代表實際營運收益最高。";
+  const caveat_text = `這是歷史最佳計畫（事後電價）的保留率，不代表實際營運收益最高。${is_trial ? "試算值未寫入設定檔。" : ""}`;
+  const prefix_text = is_trial ? "試算・" : "";
   if (spread_review.status === "keep") {
     return {
-      title_text: `維持：目前標準 ${current_text} 保留 ${format_percent(outcome.retention_ratio)} 的歷史可得收益`,
+      title_text: `${prefix_text}維持：${standard_text} 保留 ${format_percent(outcome.retention_ratio)} 的歷史可得收益`,
       body_text: `門檻設在 0 至 ${highest_text} 之間都能保留至少 ${RETENTION_PERCENT_TEXT}。${caveat_text}`,
     };
   }
   return {
-    title_text: `建議下調：目前標準 ${current_text} 只保留 ${format_percent(outcome.retention_ratio)} 的歷史可得收益`,
-    body_text: `要保留至少 ${RETENTION_PERCENT_TEXT}，門檻需不高於 ${highest_text}；目前標準錯過 ${outcome.skipped_day_count} 天，潛在收益 ${format_money(outcome.skipped_value_aud, CURRENCY_CODE)}。${caveat_text}`,
+    title_text: `${prefix_text}建議下調：${standard_text} 只保留 ${format_percent(outcome.retention_ratio)} 的歷史可得收益`,
+    body_text: `要保留至少 ${RETENTION_PERCENT_TEXT}，門檻需不高於 ${highest_text}；${standard_label_for(is_trial)}錯過 ${outcome.skipped_day_count} 天，潛在收益 ${format_money(outcome.skipped_value_aud, CURRENCY_CODE)}。${caveat_text}`,
   };
 }
 
@@ -183,9 +194,10 @@ function build_verdict_copy(spread_review, current_text) {
  *
  * @param {import("./spread_review.js").SpreadReview} spread_review 檢討結果
  * @param {ReviewContext} review_context 期間、檢視與設定
+ * @param {string} configured_text 設定檔目前標準的顯示文字
  * @returns {string[]} 文字行
  */
-function build_note_lines(spread_review, review_context) {
+function build_note_lines(spread_review, review_context, configured_text) {
   const data_excluded = spread_review.data_excluded_days;
   const event_removed = review_context.event_removed_dates;
   const spread_standard = review_context.spread_standard;
@@ -199,7 +211,10 @@ function build_note_lines(spread_review, review_context) {
     "判斷規則：當天每個循環的價差都達到標準才執行當天的最佳計畫，否則當天不做；不重新選窗、不跨日持有。",
     `資料完整但扣除效率損失與損耗後沒有正收益組合的日子：${spread_review.no_plan_day_count} 天（任何標準下都不做）。`,
     build_cost_line(review_context),
-    `目前標準取自 config/spread_standard.json：${spread_standard.effective_date} 生效，檢討人 ${spread_standard.reviewer_name}。頁面不會修改這個檔；要調整請開 PR 並附上這裡的檢討結果。`,
+    ...(review_context.is_trial
+      ? [`試算中：結論、指標與圖上標記改用試算標準，清空輸入欄即回到目前標準 ${configured_text}；試算值不會寫入設定檔。`]
+      : []),
+    `目前標準 ${configured_text} 取自 config/spread_standard.json：${spread_standard.effective_date} 生效，檢討人 ${spread_standard.reviewer_name}。頁面不會修改這個檔；要調整請開 PR 並附上這裡的檢討結果。`,
   ];
 }
 
@@ -217,6 +232,16 @@ function build_cost_line(review_context) {
   const parameter_text = `來回效率 ${format_number(battery_configuration.round_trip_efficiency * 100, 1)}%、損耗 ${format_number(battery_configuration.degradation_cost_aud_per_mwh, SPREAD_DECIMALS)} ${PRICE_UNIT}、MLF ${format_number(battery_configuration.marginal_loss_factor, 3)}`;
   const range_text = `中位數 ${format_number(cost_summary.median, SPREAD_DECIMALS)}，範圍 ${format_number(cost_summary.minimum, SPREAD_DECIMALS)} 至 ${format_number(cost_summary.maximum, SPREAD_DECIMALS)} ${PRICE_UNIT}`;
   return `損益兩平價差＝充電均價 ×（1 ÷ 來回效率 − 1）＋ 損耗成本 ÷ MLF。目前設備參數（${parameter_text}）下，${cost_summary.cycle_count} 個循環的損益兩平價差${range_text}；價差低於這個值，扣除成本後就沒有收益。這是成本說明，不是門檻。`;
+}
+
+/**
+ * 標準的名稱：試算時為「試算標準」，否則為「目前標準」。
+ *
+ * @param {boolean} is_trial 是否為試算
+ * @returns {string} 名稱
+ */
+function standard_label_for(is_trial) {
+  return is_trial ? "試算標準" : "目前標準";
 }
 
 /**
