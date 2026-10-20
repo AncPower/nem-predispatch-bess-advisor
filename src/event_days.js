@@ -1,7 +1,7 @@
 /**
  * 特殊事件的純計算（roadmap L3）：類別與影響方向的代碼表、把事件展開成日期、三種檢視篩選。
  *
- * 情境評估頁的事件表與歷史校準、價差標準檢討（#32）、參考期間推估（#33）共用這裡的規則。
+ * 情境評估頁的事件表、每日收益圖與歷史校準、價差標準檢討（#32）、參考期間推估（#33）共用這裡的規則。
  * 事件只要有一部分時段落在某個交易日，那一天就算事件日；起時、迄時只供顯示。
  */
 
@@ -87,4 +87,38 @@ export function filter_days_by_event_view(day_records, event_dates, view_key) {
   if (view_key === "include_events") return [...day_records];
   const keep_event_days = view_key === "only_events";
   return day_records.filter((day_record) => event_dates.has(day_record.date) === keep_event_days);
+}
+
+/**
+ * 每一天有哪些事件（跨日事件在涵蓋的每一天都會出現），依輸入順序排列。
+ *
+ * @template {{start_date: string, end_date: string}} SpecialDate
+ * @param {readonly SpecialDate[]} special_dates 事件
+ * @returns {Map<string, SpecialDate[]>} 日期 → 事件
+ */
+export function group_events_by_date(special_dates) {
+  const events_by_date = new Map();
+  for (const special_date of special_dates) {
+    for (const event_date of list_event_dates(special_date)) {
+      if (!events_by_date.has(event_date)) events_by_date.set(event_date, []);
+      events_by_date.get(event_date).push(special_date);
+    }
+  }
+  return events_by_date;
+}
+
+/**
+ * 每日收益圖的標注：沒有事件為 `none`，有事件為 `event`；當天任一事件標為預設排除時為 `excluded_event`。
+ *
+ * @param {readonly {date: string, net_value_aud: number | null}[]} day_records 每日資料，例如 `data/daily_summary.json` 的 `days`
+ * @param {ReadonlyMap<string, readonly {exclude_by_default: boolean}[]>} events_by_date `group_events_by_date` 的結果
+ * @returns {{date: string, net_value_aud: number | null, marker_kind: "none" | "event" | "excluded_event", day_events: readonly object[]}[]} 依輸入順序
+ */
+export function annotate_days_with_events(day_records, events_by_date) {
+  return day_records.map((day_record) => {
+    const day_events = events_by_date.get(day_record.date) ?? [];
+    let marker_kind = "none";
+    if (day_events.length > 0) marker_kind = day_events.some((special_date) => special_date.exclude_by_default) ? "excluded_event" : "event";
+    return { date: day_record.date, net_value_aud: day_record.net_value_aud, marker_kind, day_events };
+  });
 }
