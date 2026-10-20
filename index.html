@@ -34,12 +34,13 @@
 <div class="field"><label for="region_select">NEM 區域</label>
 <select id="region_select"><option value="NSW1">新南威爾斯 NSW1</option><option value="QLD1">昆士蘭 QLD1</option><option value="VIC1">維多利亞 VIC1</option><option value="SA1">南澳 SA1</option><option value="TAS1">塔斯馬尼亞 TAS1</option></select></div>
 <div class="row2">
-<div class="field"><label for="power_input">功率 MW</label><input type="number" id="power_input" value="5" min="0.1" step="0.1"></div>
-<div class="field"><label for="capacity_input">容量 MWh</label><input type="number" id="capacity_input" value="20" min="0.1" step="0.1"></div>
-<div class="field"><label for="loss_factor_input">損失係數 MLF</label><input type="number" id="loss_factor_input" value="1.00" step="0.01" min="0.5" max="1.2"></div>
+<div class="field"><label for="power_input">功率 MW</label><input type="number" id="power_input" readonly></div>
+<div class="field"><label for="capacity_input">容量 MWh</label><input type="number" id="capacity_input" readonly></div>
+<div class="field"><label for="loss_factor_input">損失係數 MLF</label><input type="number" id="loss_factor_input" readonly></div>
 <div class="field"><label for="soc_input">目前電量 %</label><input type="number" id="soc_input" value="0" min="0" max="100"></div>
 </div>
-<p class="hint">來回效率固定 100%，不計電池損耗。「目前電量」只用在下方自訂價格的試算；建議計畫一律假設從空電池開始。</p>
+<p class="hint" id="battery_configuration_note">正在讀取設備參數…</p>
+<p class="hint">建議計畫目前仍以來回效率 100%、不計損耗計算。「目前電量」只用在下方自訂價格的試算；建議計畫一律假設從空電池開始。</p>
 <div class="field"><label for="minimum_spread_input"><span>每循環最低價差</span><span>AUD/MWh</span></label><input type="number" id="minimum_spread_input" value="0" min="0" step="1"></div>
 <p class="hint">建議計畫只排「放電段均價 − 充電段均價」不低於這個值的循環。0 表示只要有賺就排；調高可以省下價差很小的循環。</p>
 <h2>3. 自訂充放電價格</h2>

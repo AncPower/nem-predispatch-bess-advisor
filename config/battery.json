@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "power_mw": 5,
+  "capacity_mwh": 20,
+  "round_trip_efficiency": 1,
+  "degradation_cost_aud_per_mwh": 0,
+  "marginal_loss_factor": 1
+}

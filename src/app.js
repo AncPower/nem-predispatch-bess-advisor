@@ -4,7 +4,9 @@
 
 import { fetch_dashboard_report, parse_dashboard_report } from "./dashboard_source.js";
 import { format_nem_label, interval_start_minute } from "./nem_time.js";
+import { format_number } from "./number_format.js";
 import { draw_price_chart, draw_sweep_chart, format_aud, render_kpi_row, render_plan_steps } from "./page_render.js";
+import { fetch_battery_configuration } from "./shared_configuration.js";
 import { find_remaining_energy_markers, simulate_threshold_dispatch } from "./threshold_dispatch.js";
 import { parse_predispatch_csv } from "./upload_parser.js";
 import { select_best_plan, suggest_price_thresholds } from "./window_selection.js";
@@ -12,13 +14,13 @@ import { select_best_plan, suggest_price_thresholds } from "./window_selection.j
 const AUTO_REFRESH_INTERVAL_MILLISECONDS = 5 * 60_000;
 const SWEEP_STEP_COUNT = 30;
 const MINIMUM_SWEEP_RANGE = 50;
-const MINIMUM_BATTERY_SIZE = 0.1;
 const ZIP_FILE_SIGNATURE = Object.freeze([0x50, 0x4b]);
 const RESULT_CARD_IDS = Object.freeze(["plan_card", "kpi_row", "price_chart_card", "sweep_chart_card"]);
 
 const element_by_id = (element_id) => document.getElementById(element_id);
 
 const page_state = {
+  battery_configuration: null,
   region_forecasts: null,
   origin_text: "",
   price_points: [],
@@ -105,21 +107,29 @@ function apply_region_forecasts(region_forecasts, origin_text) {
 }
 
 /**
- * 讀取電池輸入欄，數值不合理時拉回合法範圍。
+ * 組出電池規格：設備參數取自 `config/battery.json`，目前電量取自輸入欄（空白或超出範圍時拉回 0–100%）。
  *
  * @returns {import("./threshold_dispatch.js").DispatchBattery} 電池規格
  */
-function read_battery_inputs() {
-  const read_number = (element_id, fallback_value) => {
-    const input_value = Number.parseFloat(element_by_id(element_id).value);
-    return Number.isFinite(input_value) ? input_value : fallback_value;
-  };
-  return {
-    power_mw: Math.max(MINIMUM_BATTERY_SIZE, read_number("power_input", 5)),
-    capacity_mwh: Math.max(MINIMUM_BATTERY_SIZE, read_number("capacity_input", 20)),
-    marginal_loss_factor: read_number("loss_factor_input", 1),
-    initial_soc_fraction: Math.min(1, Math.max(0, read_number("soc_input", 0) / 100)),
-  };
+function build_battery_specification() {
+  const soc_percent = Number.parseFloat(element_by_id("soc_input").value);
+  const initial_soc_fraction = Number.isFinite(soc_percent) ? Math.min(1, Math.max(0, soc_percent / 100)) : 0;
+  return { ...page_state.battery_configuration, initial_soc_fraction };
+}
+
+/**
+ * 把設備參數填進唯讀欄位與說明文字。
+ *
+ * @param {import("./shared_configuration.js").BatteryConfiguration} battery_configuration 設備參數
+ */
+function show_battery_configuration(battery_configuration) {
+  element_by_id("power_input").value = String(battery_configuration.power_mw);
+  element_by_id("capacity_input").value = String(battery_configuration.capacity_mwh);
+  element_by_id("loss_factor_input").value = String(battery_configuration.marginal_loss_factor);
+  const efficiency_percent = format_number(battery_configuration.round_trip_efficiency * 100, 1);
+  const degradation_cost = format_number(battery_configuration.degradation_cost_aud_per_mwh, 2);
+  element_by_id("battery_configuration_note").textContent =
+    `設備參數取自 config/battery.json（來回效率 ${efficiency_percent}%、每 MWh 損耗成本 ${degradation_cost} AUD），要修改請改檔案並開 PR。`;
 }
 
 /**
@@ -142,7 +152,7 @@ function analyse_region() {
   }
   const price_values = price_points.map((price_point) => price_point.price);
   page_state.price_points = price_points;
-  page_state.plan_result = select_best_plan(price_values, read_battery_inputs(), read_minimum_cycle_spread());
+  page_state.plan_result = select_best_plan(price_values, build_battery_specification(), read_minimum_cycle_spread());
   set_status(`${page_state.origin_text}。`);
   element_by_id("empty_card").hidden = true;
   RESULT_CARD_IDS.forEach((card_id) => { element_by_id(card_id).hidden = false; });
@@ -202,7 +212,7 @@ function set_slider_pair(field_name, field_value) {
 /** 依自訂價格重算 KPI 與兩張圖。 */
 function update_dispatch_view() {
   if (!page_state.price_points.length) return;
-  const battery_spec = read_battery_inputs();
+  const battery_spec = build_battery_specification();
   const price_values = page_state.price_points.map((price_point) => price_point.price);
   const charge_price_cap = Number(element_by_id("charge_cap_number").value) || 0;
   const price_spread = Number(element_by_id("spread_number").value) || 0;
@@ -317,15 +327,26 @@ function wire_source_and_battery_inputs() {
     page_state.thresholds_adjusted = false;
     if (page_state.region_forecasts) analyse_region();
   });
-  for (const input_id of ["power_input", "capacity_input", "loss_factor_input", "minimum_spread_input"]) {
-    element_by_id(input_id).addEventListener("input", () => { if (page_state.region_forecasts) analyse_region(); });
-  }
+  element_by_id("minimum_spread_input").addEventListener("input", () => { if (page_state.region_forecasts) analyse_region(); });
   element_by_id("soc_input").addEventListener("input", update_dispatch_view);
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", update_dispatch_view);
 }
 
-wire_upload_zone();
-wire_threshold_inputs();
-wire_source_and_battery_inputs();
-set_auto_refresh(true);
-load_from_dashboard();
+/** 先讀設備參數；讀不到就停在錯誤訊息，不讀電價、不計算。 */
+async function start_page() {
+  try {
+    page_state.battery_configuration = await fetch_battery_configuration();
+  } catch (configuration_error) {
+    set_status(`無法讀取設備參數，頁面不計算：${configuration_error.message}`, true);
+    element_by_id("battery_configuration_note").textContent = "設備參數讀取失敗，見上方資料狀態。";
+    return;
+  }
+  show_battery_configuration(page_state.battery_configuration);
+  wire_upload_zone();
+  wire_threshold_inputs();
+  wire_source_and_battery_inputs();
+  set_auto_refresh(true);
+  load_from_dashboard();
+}
+
+start_page();

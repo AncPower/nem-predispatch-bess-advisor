@@ -18,9 +18,10 @@
 | `src/dashboard_source.js` | L2 資料來源 | 呼叫 AEMO 儀表板 API 並驗證回應 | `DASHBOARD_REPORT_URL`, `fetch_dashboard_report`, `parse_dashboard_report` | `http_request`, `nem_time` |
 | `src/upload_parser.js` | L2 資料來源 | 解析手動上傳的 NEMWeb 預調度 CSV | `parse_predispatch_csv` | `csv_line`, `nem_time` |
 | `src/special_date_notes.js` | L2 資料來源 | 以 GitHub Issues 讀取特殊日期備註、產生新增備註網址 | `NOTES_REPOSITORY`, `NOTE_LABEL`, `NOTE_TEMPLATE_FILE`, `NOTE_FIELD_HEADINGS`, `fetch_special_date_notes`, `parse_note_issue`, `parse_issue_form_body`, `build_new_note_url`, `collect_excluded_dates` | `http_request` |
+| `src/shared_configuration.js` | L2 資料來源 | 讀取並驗證共用設定檔 `config/battery.json`、`config/spread_standard.json`；欄位缺漏、未知欄位或數值不合理時報錯 | `SUPPORTED_SCHEMA_VERSION`, `BATTERY_CONFIGURATION_URL`, `fetch_battery_configuration`, `parse_battery_configuration`, `parse_spread_standard` | `http_request` |
 | `src/page_render.js` | L3 顯示 | 預調度工具：計畫卡片、KPI、兩張圖（Chart.js） | `format_aud`, `render_plan_steps`, `render_kpi_row`, `draw_price_chart`, `draw_sweep_chart` | `nem_time`, `number_format` |
 | `src/scenario_render.js` | L3 顯示 | 情境工具：欄位、燈號、KPI、兩張圖、校準統計、備註表 | `build_field_html`, `render_verdict`, `render_kpis`, `draw_hourly_chart`, `draw_standard_chart`, `render_calibration_stats`, `render_notes_table` | `number_format`, `scenario_presets` |
-| `src/app.js` | L4 進入點 | 預調度工具（`index.html`）：讀資料、收集輸入、呼叫計算與顯示、自動更新 | — | `dashboard_source`, `nem_time`, `page_render`, `threshold_dispatch`, `upload_parser`, `window_selection` |
+| `src/app.js` | L4 進入點 | 預調度工具（`index.html`）：先讀設備參數，再讀資料、收集輸入、呼叫計算與顯示、自動更新 | — | `dashboard_source`, `nem_time`, `number_format`, `page_render`, `shared_configuration`, `threshold_dispatch`, `upload_parser`, `window_selection` |
 | `src/scenario_app.js` | L4 進入點 | 情境工具（`scenario/index.html`）：模擬、校準、讀備註 | — | `history_calibration`, `price_simulation`, `scenario_presets`, `scenario_render`, `special_date_notes`, `spread_strategy` |
 
 外部函式庫由兩個 HTML 從 cdnjs 以全域變數載入：JSZip 3.10.1（預調度工具解壓上傳的 zip）、Chart.js 4.4.1（兩個工具畫圖）。
