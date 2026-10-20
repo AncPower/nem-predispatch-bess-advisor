@@ -273,3 +273,52 @@ export function suggest_price_thresholds(price_values, plan_result) {
   const discharge_price_floor = Math.floor(Math.min(...window_prices(main_cycle.discharge_start_index)));
   return { charge_price_cap, price_spread: Math.max(0, discharge_price_floor - charge_price_cap) };
 }
+
+export const PLAN_ACTIONS = Object.freeze({ execute: "execute", wait: "wait" });
+
+/**
+ * @typedef {object} PlanDecision
+ * @property {"execute" | "wait"} action 執行或等待
+ * @property {ReturnType<typeof select_best_plan>} executable_plan 以價差標準為每循環最低價差選出的計畫；等待時沒有循環
+ * @property {ReturnType<typeof select_best_plan>} best_plan 不設最低價差的最佳組合
+ * @property {number | null} best_cycle_spread 等待時，最佳組合中最大的循環價差；沒有獲利組合或執行時為 null
+ * @property {number | null} spread_gap 等待時，價差標準 − best_cycle_spread；否則為 null
+ * @property {number | null} highest_break_even_spread 顯示的計畫（執行時為可執行計畫，否則為最佳組合）各循環損益兩平價差的最大值
+ * @property {boolean} standard_below_break_even 價差標準是否低於 highest_break_even_spread
+ */
+
+/**
+ * 依價差標準判斷執行或等待（roadmap D4）：每個循環的價差 ≥ 價差標準且整體淨收益 > 0 才執行。
+ *
+ * 跑兩次選窗：以價差標準為門檻得到可執行計畫，不設門檻得到最佳組合，等待時用來說明差距。
+ * 最佳組合的每個循環都是門檻 0 的候選；若其中有循環價差達到標準，它也會是可執行計畫的候選，
+ * 所以等待時最佳組合的最大價差一定低於標準，差距為正。
+ *
+ * @param {number[]} price_values 依時間排序的 30 分鐘電價（AUD/MWh）
+ * @param {BatterySpec} battery_spec 電池規格
+ * @param {number} spread_standard 價差標準（AUD/MWh），0 以上
+ * @returns {PlanDecision} 結論
+ * @throws {Error} 價差標準為負或非數值，或 `select_best_plan` 的輸入不合法時
+ */
+export function decide_plan_action(price_values, battery_spec, spread_standard) {
+  if (!Number.isFinite(spread_standard) || spread_standard < 0) {
+    throw new Error(`價差標準必須是 0 以上的數值：${spread_standard}`);
+  }
+  const executable_plan = select_best_plan(price_values, battery_spec, spread_standard);
+  const best_plan = select_best_plan(price_values, battery_spec, 0);
+  const is_executable = executable_plan.cycles.length > 0 && executable_plan.total_value > 0;
+  const shown_cycles = is_executable ? executable_plan.cycles : best_plan.cycles;
+  const break_even_spreads = shown_cycles.map((planned_cycle) => break_even_spread(planned_cycle.charge_average_price, battery_spec));
+  const highest_break_even_spread = break_even_spreads.length > 0 ? Math.max(...break_even_spreads) : null;
+  const cycle_spreads = best_plan.cycles.map((planned_cycle) => planned_cycle.discharge_average_price - planned_cycle.charge_average_price);
+  const best_cycle_spread = !is_executable && cycle_spreads.length > 0 ? Math.max(...cycle_spreads) : null;
+  return {
+    action: is_executable ? PLAN_ACTIONS.execute : PLAN_ACTIONS.wait,
+    executable_plan,
+    best_plan,
+    best_cycle_spread,
+    spread_gap: best_cycle_spread === null ? null : spread_standard - best_cycle_spread,
+    highest_break_even_spread,
+    standard_below_break_even: highest_break_even_spread !== null && spread_standard < highest_break_even_spread,
+  };
+}

@@ -13,6 +13,7 @@ const MODULE_LAYERS = Object.freeze({
   "window_selection.js": 1,
   "threshold_dispatch.js": 1,
   "data_freshness.js": 1,
+  "wait_streak.js": 1,
   "price_simulation.js": 1,
   "spread_strategy.js": 1,
   "history_calibration.js": 1,

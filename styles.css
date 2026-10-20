@@ -85,3 +85,12 @@ h3{margin:0 0 2px;font-size:16px}
 .source-table thead th{border-top:none;color:var(--ink-3);font-weight:500}
 .source-table tbody th{white-space:nowrap;color:var(--ink);font-weight:500}
 .source-table code{font-size:12px;word-break:break-all}
+.verdict{border-left:4px solid var(--ink-3);padding:6px 0 6px 14px;margin:4px 0 14px}
+.verdict:empty{display:none}
+.verdict.run{border-left-color:var(--charge)}
+.verdict.wait{border-left-color:var(--discharge)}
+.verdict .v{font-size:20px;font-weight:700;line-height:1.35}
+.verdict .s{font-size:14px;color:var(--ink-2)}
+.verdict .warn{color:var(--warn)}
+.plan-notes{margin-top:14px;font-size:13px;color:var(--ink-2)}
+.plan-notes ul{margin:4px 0 0;padding-left:1.2em}

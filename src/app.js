@@ -6,11 +6,28 @@ import { assess_data_freshness, format_data_freshness } from "./data_freshness.j
 import { fetch_dashboard_report, parse_dashboard_report } from "./dashboard_source.js";
 import { format_nem_label, interval_start_minute } from "./nem_time.js";
 import { format_number } from "./number_format.js";
-import { draw_price_chart, draw_sweep_chart, format_aud, render_kpi_row, render_plan_steps } from "./page_render.js";
-import { fetch_battery_configuration } from "./shared_configuration.js";
+import {
+  describe_plan_verdict,
+  draw_price_chart,
+  draw_sweep_chart,
+  format_aud,
+  format_spread,
+  render_kpi_row,
+  render_plan_steps,
+  render_plan_verdict,
+} from "./page_render.js";
+import { fetch_battery_configuration, fetch_spread_standard } from "./shared_configuration.js";
 import { find_remaining_energy_markers, simulate_threshold_dispatch } from "./threshold_dispatch.js";
 import { parse_predispatch_csv } from "./upload_parser.js";
-import { select_best_plan, suggest_price_thresholds } from "./window_selection.js";
+import {
+  WAIT_HISTORY_STORAGE_KEY,
+  count_wait_streak,
+  nem_date_for,
+  parse_wait_history,
+  record_plan_action,
+  serialize_wait_history,
+} from "./wait_streak.js";
+import { decide_plan_action, suggest_price_thresholds } from "./window_selection.js";
 
 const REGION_ID = "NSW1";
 const AUTO_REFRESH_INTERVAL_MILLISECONDS = 5 * 60_000;
@@ -25,12 +42,15 @@ const element_by_id = (element_id) => document.getElementById(element_id);
 
 const page_state = {
   battery_configuration: null,
+  spread_standard: null,
   region_forecasts: null,
+  is_live_data: false,
   origin_text: "",
   fetched_at_milliseconds: null,
   fetched_time_label: "",
   price_points: [],
   plan_result: null,
+  plan_decision: null,
   thresholds_adjusted: false,
   is_loading: false,
   refresh_timer: null,
@@ -79,7 +99,7 @@ async function load_from_dashboard() {
   set_status("正在連線 AEMO…");
   try {
     const region_forecasts = parse_dashboard_report(await fetch_dashboard_report());
-    apply_region_forecasts(region_forecasts, "來源：AEMO 儀表板 API");
+    apply_region_forecasts(region_forecasts, "來源：AEMO 儀表板 API", true);
   } catch (load_error) {
     const kept_note = page_state.region_forecasts ? "畫面保留上一次成功的資料" : "請改用下方手動上傳";
     set_status(`讀取失敗：${load_error.message}。${kept_note}。`, true);
@@ -99,7 +119,7 @@ async function load_from_upload(upload_file) {
     set_status("讀取中…");
     const region_forecasts = parse_predispatch_csv(await read_upload_text(upload_file));
     set_auto_refresh(false);
-    apply_region_forecasts(region_forecasts, `來源：手動上傳 ${upload_file.name}（自動更新已暫停，時效以上傳時間計）`);
+    apply_region_forecasts(region_forecasts, `來源：手動上傳 ${upload_file.name}（自動更新已暫停，時效以上傳時間計）`, false);
   } catch (upload_error) {
     set_status(`上傳的檔案無法讀取：${upload_error.message}`, true);
   }
@@ -127,10 +147,12 @@ async function read_upload_text(upload_file) {
  *
  * @param {import("./dashboard_source.js").RegionForecasts} region_forecasts 各區域預測
  * @param {string} origin_text 資料來源說明
+ * @param {boolean} is_live_data 是否為自動讀取的即時資料；只有即時資料的結論才記入連續等待天數
  */
-function apply_region_forecasts(region_forecasts, origin_text) {
+function apply_region_forecasts(region_forecasts, origin_text, is_live_data) {
   page_state.region_forecasts = region_forecasts;
   page_state.origin_text = origin_text;
+  page_state.is_live_data = is_live_data;
   if (!analyse_region()) return;
   const fetched_date = new Date();
   page_state.fetched_at_milliseconds = fetched_date.getTime();
@@ -165,17 +187,37 @@ function show_battery_configuration(battery_configuration) {
 }
 
 /**
- * 讀取每循環最低價差，空白或負數視為 0。
+ * 把價差標準寫進建議計畫卡片的說明；設定檔的文字以 textContent 寫入。
  *
- * @returns {number} 每循環最低價差（AUD/MWh）
+ * @param {import("./shared_configuration.js").SpreadStandard} spread_standard 價差標準
  */
-function read_minimum_cycle_spread() {
-  const input_value = Number.parseFloat(element_by_id("minimum_spread_input").value);
-  return Number.isFinite(input_value) ? Math.max(0, input_value) : 0;
+function show_spread_standard(spread_standard) {
+  element_by_id("spread_standard_note").textContent =
+    `目前價差標準 ${format_spread(spread_standard.spread_standard_aud_per_mwh)}，${spread_standard.effective_date} 起生效（檢討人：${spread_standard.reviewer_name}；依據：${spread_standard.review_basis}）。取自 config/spread_standard.json，本頁不修改。`;
 }
 
 /**
- * 對 NSW1 重算建議計畫並更新畫面。
+ * 記下今天（NEM 日期）的結論並回傳連續等待天數；只記即時資料。瀏覽器不允許 localStorage 時不記錄、回傳 0。
+ *
+ * @param {"execute" | "wait"} plan_action 這次的結論
+ * @returns {number} 含今天在內連續等待的天數
+ */
+function update_wait_streak(plan_action) {
+  const today_date = nem_date_for(Date.now());
+  try {
+    let wait_history = parse_wait_history(localStorage.getItem(WAIT_HISTORY_STORAGE_KEY));
+    if (page_state.is_live_data) {
+      wait_history = record_plan_action(wait_history, today_date, plan_action);
+      localStorage.setItem(WAIT_HISTORY_STORAGE_KEY, serialize_wait_history(wait_history));
+    }
+    return count_wait_streak(wait_history, today_date);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 對 NSW1 依價差標準判斷執行或等待、重算建議計畫並更新畫面。
  *
  * @returns {boolean} 資料中是否有 NSW1 的預測電價
  */
@@ -186,12 +228,16 @@ function analyse_region() {
     return false;
   }
   const price_values = price_points.map((price_point) => price_point.price);
+  const spread_standard_value = page_state.spread_standard.spread_standard_aud_per_mwh;
   page_state.price_points = price_points;
-  page_state.plan_result = select_best_plan(price_values, build_battery_specification(), read_minimum_cycle_spread());
+  page_state.plan_decision = decide_plan_action(price_values, build_battery_specification(), spread_standard_value);
+  page_state.plan_result = page_state.plan_decision.executable_plan;
   set_status(`${page_state.origin_text}。`);
   element_by_id("empty_card").hidden = true;
   RESULT_CARD_IDS.forEach((card_id) => { element_by_id(card_id).hidden = false; });
   element_by_id("plan_subtitle").textContent = build_plan_subtitle(REGION_ID, price_points);
+  const wait_streak_days = update_wait_streak(page_state.plan_decision.action);
+  render_plan_verdict(element_by_id("plan_verdict"), describe_plan_verdict(page_state.plan_decision, spread_standard_value, wait_streak_days));
   render_plan_steps(element_by_id("plan_steps"), page_state.plan_result, price_points);
   adjust_slider_ranges(price_values);
   if (!page_state.thresholds_adjusted) apply_suggested_thresholds();
@@ -225,10 +271,11 @@ function adjust_slider_ranges(price_values) {
   element_by_id("spread_range").max = String(Math.max(MINIMUM_SWEEP_RANGE, highest_price - lowest_price));
 }
 
-/** 把自訂價格欄位設回建議值。 */
+/** 把自訂價格欄位設回建議值；等待時改用不設標準的最佳組合，方便試算「硬做」的結果。 */
 function apply_suggested_thresholds() {
   const price_values = page_state.price_points.map((price_point) => price_point.price);
-  const suggested_thresholds = suggest_price_thresholds(price_values, page_state.plan_result);
+  const reference_plan = page_state.plan_result.cycles.length > 0 ? page_state.plan_result : page_state.plan_decision.best_plan;
+  const suggested_thresholds = suggest_price_thresholds(price_values, reference_plan);
   set_slider_pair("charge_cap", suggested_thresholds.charge_price_cap);
   set_slider_pair("spread", suggested_thresholds.price_spread);
   page_state.thresholds_adjusted = false;
@@ -349,7 +396,7 @@ function wire_threshold_inputs() {
   });
 }
 
-/** 綁定資料來源、電池欄位與主題切換。 */
+/** 綁定資料來源、目前電量與主題切換。 */
 function wire_source_and_battery_inputs() {
   element_by_id("refresh_button").addEventListener("click", load_from_dashboard);
   element_by_id("auto_refresh").addEventListener("change", (change_event) => {
@@ -359,21 +406,21 @@ function wire_source_and_battery_inputs() {
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && element_by_id("auto_refresh").checked) load_from_dashboard();
   });
-  element_by_id("minimum_spread_input").addEventListener("input", () => { if (page_state.region_forecasts) analyse_region(); });
   element_by_id("soc_input").addEventListener("input", update_dispatch_view);
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", update_dispatch_view);
 }
 
-/** 先讀設備參數；讀不到就停在錯誤訊息，不讀電價、不計算。 */
+/** 先讀設備參數與價差標準；任一份讀不到就停在錯誤訊息，不讀電價、不計算。 */
 async function start_page() {
   try {
-    page_state.battery_configuration = await fetch_battery_configuration();
+    [page_state.battery_configuration, page_state.spread_standard] = await Promise.all([fetch_battery_configuration(), fetch_spread_standard()]);
   } catch (configuration_error) {
-    set_status(`無法讀取設備參數，頁面不計算：${configuration_error.message}`, true);
-    element_by_id("battery_configuration_note").textContent = "設備參數讀取失敗，見上方資料狀態。";
+    set_status(`無法讀取設定檔，頁面不計算：${configuration_error.message}`, true);
+    element_by_id("battery_configuration_note").textContent = "設定檔讀取失敗，見上方資料狀態。";
     return;
   }
   show_battery_configuration(page_state.battery_configuration);
+  show_spread_standard(page_state.spread_standard);
   wire_upload_zone();
   wire_threshold_inputs();
   wire_source_and_battery_inputs();
