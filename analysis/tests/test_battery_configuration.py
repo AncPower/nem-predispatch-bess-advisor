@@ -35,7 +35,9 @@ def test_repository_battery_configuration_is_valid() -> None:
     """repo 的 config/battery.json 可以讀出規格。"""
     battery_specification = read_battery_specification(REPOSITORY_ROOT / BATTERY_CONFIGURATION_RELATIVE_PATH)
 
-    assert battery_specification == BatterySpecification(power_mw=5, capacity_mwh=20, marginal_loss_factor=1)
+    assert battery_specification == BatterySpecification(
+        power_mw=5, capacity_mwh=20, marginal_loss_factor=1, round_trip_efficiency=1, degradation_cost_aud_per_mwh=0
+    )
 
 
 def test_battery_field_names_match_javascript_reader() -> None:
@@ -47,10 +49,10 @@ def test_battery_field_names_match_javascript_reader() -> None:
     assert set(re.findall(r'"(\w+)"', field_list_match.group(1))) == set(BATTERY_FIELD_NAMES)
 
 
-def test_parse_battery_specification_reads_power_capacity_and_loss_factor() -> None:
-    """合法內容：取出功率、容量與 MLF。"""
+def test_parse_battery_specification_reads_every_field() -> None:
+    """合法內容：取出功率、容量、MLF、來回效率與損耗成本。"""
     assert parse_battery_specification(build_battery_payload()) == BatterySpecification(
-        power_mw=5, capacity_mwh=20, marginal_loss_factor=0.98
+        power_mw=5, capacity_mwh=20, marginal_loss_factor=0.98, round_trip_efficiency=0.85, degradation_cost_aud_per_mwh=8
     )
 
 

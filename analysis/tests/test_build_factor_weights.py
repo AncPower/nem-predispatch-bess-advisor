@@ -150,12 +150,18 @@ def test_build_document_runs_whole_pipeline_on_synthetic_data(tmp_path: Path) ->
 
 
 def test_build_document_takes_battery_specification_from_configuration_file(tmp_path: Path) -> None:
-    """每日收益用的電池規格取自 config/battery.json，不是程式裡寫死的 5 MW／20 MWh／MLF 1。"""
+    """每日收益用的電池規格取自 config/battery.json（含來回效率與損耗成本），不是程式裡寫死的值。"""
     input_directory, repository_root = build_synthetic_inputs(tmp_path)
 
     report_document = build_document(input_directory, repository_root, GENERATED_AT)
 
-    assert report_document["battery_specification"] == {"power_mw": 10, "capacity_mwh": 20, "marginal_loss_factor": 0.95}
+    assert report_document["battery_specification"] == {
+        "power_mw": 10,
+        "capacity_mwh": 20,
+        "marginal_loss_factor": 0.95,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
+    }
 
 
 def test_build_document_rejects_invalid_battery_configuration(tmp_path: Path) -> None:
