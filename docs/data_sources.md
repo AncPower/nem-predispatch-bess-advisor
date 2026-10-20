@@ -19,12 +19,12 @@
 | 6 | AEMO STTM 雪梨天然氣每日價格 | #11 使用中 | `data/external/sttm_sydney_daily_price.csv`、`analysis/external_factors.py` |
 | 7 | AER 天然氣財政年度平均價 | 已存進 repo，只用來核對 #6 | `data/external/aer_gas_market_prices_financial_year.csv` |
 | 8 | AEMO 機組登記資料（NSW 電池） | #11 使用中 | `data/external/nsw_battery_units.csv`、`analysis/external_factors.py` |
-| 9 | AEMO 電價與區域資料（`nsw-dispatch-bess-strategy` 的 `input/`） | #11 使用中 | 另一個 repo 的本機資料，路徑由 `NEM_INPUT_DIRECTORY` 設定；`analysis/daily_revenue.py`、`analysis/region_factors.py` |
+| 9 | AEMO 電價與區域資料（`nsw-dispatch-bess-strategy` 的 `input/`） | #11、#30 使用中 | 另一個 repo 的本機資料，路徑由 `NEM_INPUT_DIRECTORY` 設定；`analysis/daily_revenue.py`、`analysis/region_factors.py` |
 | 10 | Open-Meteo 歷史天氣 API | #11 規劃中 | — |
 | 11 | AEMO 機組發電量 `DISPATCH_UNIT_SCADA` | #11 規劃中 | — |
 | 12 | AEMO 屋頂型太陽能 `ROOFTOP_PV_ACTUAL` | #11 規劃中 | — |
 
-特殊事件（#14）還沒有資料，補上後加進本表。#6、#8、#9 算出的權重寫在 `data/factor_weights.json`，格式見文末〈輸出：`data/factor_weights.json`〉。
+特殊事件（#14）還沒有資料，補上後加進本表。#6、#8、#9 算出的權重寫在 `data/factor_weights.json`，格式見文末〈輸出：`data/factor_weights.json`〉。#9 的電價另外算成每日摘要 `data/daily_summary.json`（#30），格式見〈輸出：`data/daily_summary.json`〉。
 
 ## 網頁使用中的來源
 
@@ -164,7 +164,7 @@
 | 格式 | MMS CSV：`I` 列是欄名，`D` 列是資料。同一個檔會中途換版本，欄位順序也跟著變（例如 2024 檔第 70,281 行從 TRADING.PRICE v2 換成 v3），所以程式一律依欄名讀（`analysis/mms_csv.py`） |
 | 涵蓋期間 | 每個資料夾前後各多一個月，例如 2024 資料夾是 2023-12-01 到 2025-02-01 00:00。相鄰資料夾重疊的 35,712 個 5 分鐘電價完全相同；程式依時間戳記去重，值不同就停止 |
 | 時間 | NEM 時間（AEST，UTC+10，不調夏令時間），時間戳記是時段結束時間。交易日 D 是時段開始時間落在 D 00:00 到 D+1 00:00 之間的時段 |
-| 更新 | 由 `nem-forecast-reliability` 匯入新期間後，重跑 `NEM_INPUT_DIRECTORY=<原始資料目錄> uv run python -m analysis.build_factor_weights` |
+| 更新 | 由 `nem-forecast-reliability` 匯入新期間後，重跑 `NEM_INPUT_DIRECTORY=<原始資料目錄> uv run python -m analysis.build_factor_weights` 與 `NEM_INPUT_DIRECTORY=<原始資料目錄> uv run python -m analysis.build_daily_summary` |
 
 #### `trading_price.csv`：每日套利收益（被解釋變數）
 
@@ -258,6 +258,43 @@ log(1 + 收益) = target.mean + target.standard_deviation
 
 CI 的 `analysis` job 會跑 `analysis/tests/test_factor_weights_freshness.py`：重算 `combined_sha256`，和 JSON 不同就失敗，訊息列出改動的檔案與重跑指令。改了分析程式或 `data/external/` 之後，要在本機重跑並把 JSON 一起 commit。
 
+`data/daily_summary.json` 用同一套指紋，由 `analysis/tests/test_daily_summary_freshness.py` 檢查。`code_files` 涵蓋 `analysis/` 第一層的每個 `.py`，所以改任何一個分析模組，兩份 JSON 都要重跑。
+
 `uv.lock` 不在指紋內，所以依賴升版（例如 `highspy`）改變解的時候，CI 不會發現。
 
 指紋直接對檔案的位元組算 sha256，換行符號不同就會得到不同的值。repo 根目錄的 `.gitattributes` 把 `*.py` 與 `data/external/*.csv` 固定為 LF，Windows 上的 CRLF checkout 也不會讓過期檢查誤判。
+
+## 輸出：`data/daily_summary.json`
+
+由 `NEM_INPUT_DIRECTORY=<原始資料目錄> uv run python -m analysis.build_daily_summary` 在 repo 根目錄產生，進 git，隨 GitHub Pages 部署，給情境評估頁的價差標準檢討（#32）、參考期間推估（#33）與事件標注（#31）讀（roadmap L1）。只用 #9 的 `trading_price.csv`，不讀 P5MIN 區域解與 `data/external/`。
+
+### 計算
+
+| 步驟 | 內容 |
+|---|---|
+| 1. 電價 | 與〈`trading_price.csv`：每日套利收益〉相同：5 分鐘 RRP 平均成 30 分鐘，每天 48 段 |
+| 2. 計畫 | 每個交易日跑 `select_best_plan`（roadmap D2、D3）：電池取自 `config/battery.json`，計入來回效率、損耗成本與 MLF；從空電池開始、不跨午夜；每循環最低價差為 0 |
+| 3. 價差 | 每個循環的放電段均價 − 充電段均價（AUD/MWh），與價差標準的定義相同，不含效率與 MLF |
+| 4. 排除 | 5 分鐘電價不足 288 筆的日子不算計畫，原因記為「5 分鐘電價只有 N 筆（應為 288 筆）」；期間內完全沒有電價的日子記為「沒有電價資料」。不補值 |
+| 期間 | 2024-07-01（與權重的擬合期間同一天起算）到原始資料最後一個完整交易日；每月更新時不必改程式 |
+
+資料完整但沒有任何淨收益為正的組合時，當天不排除：`net_value_aud` 為 0、`cycles` 為空、`best_spread_aud_per_mwh` 為 null。
+
+### 欄位
+
+| 欄位 | 內容 |
+|---|---|
+| `schema_version` | 格式版本，目前是 1 |
+| `generated_at` | 產生時間，ISO 8601 UTC（`Z` 結尾） |
+| `region_id` | `NSW1` |
+| `period` | `start_date`、`end_date`、`day_count`、`included_day_count`、`excluded_day_count` |
+| `battery_specification` | 算計畫用的電池，取自 `config/battery.json` |
+| `days[]` | 期間內每個交易日一筆，依日期排序：`date`、`excluded`、`exclusion_reason`（未排除為 null）、`net_value_aud`（各循環淨收益加總，排除時為 null）、`best_spread_aud_per_mwh`、`cycles` |
+| `days[].best_spread_aud_per_mwh` | 各循環價差的最小值。#32 的執行條件是「每個循環 ≥ 標準」，最小的循環決定能不能執行；只有一個循環時就是它的價差 |
+| `days[].cycles[]` | 0 到 2 個循環：`charge_start`、`discharge_start`（段開始時間，NEM 時間 `YYYY-MM-DDTHH:MM`）、`charge_average_price_aud_per_mwh`、`discharge_average_price_aud_per_mwh`、`spread_aud_per_mwh`、`net_value_aud` |
+| `input_fingerprint` | 同權重檔的格式；`external_files` 只有 `config/battery.json`，`raw_input_files` 只有各期間的 `trading_price.csv` |
+
+### 限制
+
+- 計畫以每循環最低價差 0 選出。套用某個價差標準時，如果最佳組合有循環未達標，換用其他組合仍可能有達標的計畫；#32 依 roadmap L2 的簡化規則「當日最佳價差 ≥ 標準即執行」，不重新選窗。
+- 每日摘要的排除只看電價是否完整，和權重的排除日不同：權重另外排除 P5MIN 求解不足 288 次、缺天然氣價或電池裝置量的日子。
