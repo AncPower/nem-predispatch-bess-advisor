@@ -14,7 +14,7 @@
 <div class="wrap">
 <header>
 <h1>儲能情境因子與歷史校準</h1>
-<p>用歷史電價校準價格型態，再以天氣、相關市場與新聞事件調整情境因子，評估「連續四小時高價段 − 連續四小時低價段」的價差標準。資料特別的日期可在下方留下備註，供開發人員調整量化方式。即時預調度電價請用 <a href="../">AEMO 預調度充放電建議</a>。</p>
+<p>用歷史電價校準價格型態，再以天氣、相關市場與新聞事件調整情境因子，評估「連續四小時高價段 − 連續四小時低價段」的價差標準。影響電價的特殊事件列在下方的事件清單，經審核後才會更新。即時預調度電價請用 <a href="../">AEMO 預調度充放電建議</a>。</p>
 </header>
 <div class="grid">
 <aside class="controls" id="controls_panel" aria-label="輸入參數">
@@ -63,40 +63,30 @@
 </section>
 <section class="card">
 <h3>以歷史電價校準</h3>
-<p class="sub">上傳歷史電價 CSV（例如 AEMO 各區域每月的 PRICE_AND_DEMAND 檔，或任何含日期時間與電價兩欄的檔案）。工具會擬合每日價格型態、尖峰頻率與價差，取代市場預設值；檔案含多個區域時使用 NSW1。下方備註中標記「校準時排除」的日期不會納入。</p>
+<p class="sub">上傳歷史電價 CSV（例如 AEMO 各區域每月的 PRICE_AND_DEMAND 檔，或任何含日期時間與電價兩欄的檔案）。工具會擬合每日價格型態、尖峰頻率與價差，取代市場預設值；檔案含多個區域時使用 NSW1。下方事件清單中標為「預設排除」的日期不會納入。</p>
 <div class="drop" id="calibration_drop" tabindex="0" role="button" aria-label="上傳歷史電價 CSV">拖曳或點選上傳歷史電價 CSV</div>
 <input type="file" id="calibration_file" accept=".csv,.CSV,.txt" hidden>
 <div class="status" id="calibration_status" aria-live="polite"></div>
 <div class="calstats" id="calibration_stats"></div>
 </section>
 <section class="card">
-<h3>特殊日期備註</h3>
-<p class="sub">遇到資料很特別的日期（極端天氣、機組事故、政策公告、資料異常），請記下日期、時間與補充資訊。備註存在 <a href="https://github.com/AncPower/nem-predispatch-bess-advisor/issues?q=is%3Aissue+label%3Aspecial-date" target="_blank" rel="noopener">GitHub Issues（標籤 special-date）</a>，所有人都看得到；開發人員會依備註決定是否調整量化與因子校準方式。</p>
-<div class="nform">
-<div><label for="note_date">日期</label><input type="date" id="note_date"></div>
-<div><label for="note_time">時間</label><input type="time" id="note_time"></div>
-<div><label for="note_market">市場或區域</label><input type="text" id="note_market" placeholder="例如 NSW1"></div>
-<div class="wide"><label for="note_text">補充資訊</label><textarea id="note_text" placeholder="發生了什麼、對電價的影響、資料來源連結"></textarea></div>
-<div class="wide button-row">
-<button class="btn primary" id="new_note_button" type="button">在 GitHub 新增備註</button>
-<button class="btn" id="refresh_notes_button" type="button">重新整理備註</button>
-</div>
-</div>
-<p class="sub" style="margin-top:8px">按「在 GitHub 新增備註」會在新分頁打開已填好上面欄位的表單；類別與「校準時排除此日」在表單上選，送出需要 GitHub 帳號。要撤回備註，到該 issue 按 Close。</p>
-<div class="status" id="notes_status" aria-live="polite"></div>
-<div class="tblwrap"><table class="tbl"><thead><tr><th>日期</th><th>時間</th><th>市場</th><th>類別</th><th>補充資訊</th><th>校準</th><th>Issue</th></tr></thead><tbody id="notes_body"></tbody></table></div>
+<h3>特殊事件清單</h3>
+<p class="sub">影響電價的特殊事件（機組或輸電事故、AEMO 市場干預、極端天氣、價格上限或累積價格門檻觸發、政策或規則公告、資料異常）記在 <a href="https://github.com/AncPower/nem-predispatch-bess-advisor/blob/main/data/special_dates.csv" target="_blank" rel="noopener">data/special_dates.csv</a>，隨網頁一起發佈，所有人都看得到。</p>
+<p class="sub">要新增或修改事件，請開 PR 修改這個檔：每筆事件一行，必須附外部來源網址（AEMO 市場通知、AER 報告、氣象預警、新聞），由新增人以外的人審核後合併。不可只因電價或收益異常就標注。欄位與類別代碼見 <a href="https://github.com/AncPower/nem-predispatch-bess-advisor/blob/main/docs/data_sources.md" target="_blank" rel="noopener">資料來源說明</a>。</p>
+<div class="status" id="events_status" aria-live="polite"></div>
+<div class="tblwrap"><table class="tbl"><thead><tr><th>期間（NEM 時間）</th><th>類別</th><th>事件</th><th>說明</th><th>影響</th><th>校準</th><th>來源</th><th>新增／審核</th></tr></thead><tbody id="events_body"></tbody></table></div>
 </section>
 <section class="card notes">
 <h3>資料來源與模型假設</h3>
 <ul>
 <li>各市場預設值是依公開報導整理的示意價格型態，不是即時市場數據；正式使用前請以歷史電價校準。</li>
 <li>歷史電價：手動上傳。AEMO 網站的月檔不開放跨網域讀取，網頁無法直接下載。</li>
-<li>特殊日期備註：開頁時與按「重新整理備註」時向 GitHub API 讀取未關閉、標籤為 special-date 的 issue。未登入時每個網路每小時最多 60 次，所以不會自動輪詢。</li>
+<li>特殊事件：開頁時讀取 repo 內的 data/special_dates.csv，內容經 PR 審核後才會更新，不呼叫 GitHub API。</li>
 <li>每日電價由基準價、午間再生能源凹陷、傍晚尖峰、天氣波動與偶發尖峰組成，模擬 400 條路徑（固定亂數種子，同樣輸入得到同樣結果）。</li>
 <li>每天若電池為空，於當日最低價的連續四小時充電；之後出現的最高價連續四小時，若與充電價的價差達標即放電，否則持有，最多等待設定天數後強制放電。</li>
 <li>收益＝放電電量 ×（高價段均價 − 低價段均價）；來回效率固定 100%，不計電池損耗、輔助服務、容量收入、網路費與損失係數。</li>
 <li>此工具假設發電與用電業者的參與量沒有劇烈變化；若市場結構改變（大量新電池、電廠退場、規則修訂），預設值需重新校準。</li>
-<li>天氣與相關市場的換算係數（例如每偏離 1°C 需求增加的比例、風電與鄰近市場電價的傳導比例）為初始假設，會依備註與實際結果調整。</li>
+<li>天氣與相關市場的換算係數（例如每偏離 1°C 需求增加的比例、風電與鄰近市場電價的傳導比例）為初始假設，會依事件清單與實際結果調整。</li>
 </ul>
 </section>
 </main>
