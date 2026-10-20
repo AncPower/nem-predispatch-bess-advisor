@@ -2,10 +2,13 @@
  * 在預調度電價上選出建議充放電窗（純計算，不連網路、不碰畫面）。
  *
  * 每段窗口長度相同（容量 ÷ 功率）、連續、滿功率、不重疊且依序排列。一個循環是「充、放」兩段，
- * 兩個循環是「充、放、充、放」四段一起選，求「放電段總價 − 充電段總價」的精確最大值。
- * 每個循環的價差（放電段均價 − 充電段均價）必須為正，且不低於每循環最低價差。
+ * 兩個循環是「充、放、充、放」四段一起選，求淨收益的精確最大值。
+ * 每個循環的價差（放電段均價 − 充電段均價）必須為正、不低於每循環最低價差，且淨收益必須為正。
  * 同分時取最早的組合；一個與兩個循環同分時取一個；沒有任何組合符合時不排。
- * 來回效率固定 100%、不計損耗，所以收益只看價差。
+ *
+ * 效率與損耗（#27）：每次充電量為「容量」，放電量為「容量 × 來回效率」（充電量＝放電量 ÷ 來回效率），
+ * 淨收益＝放電量 × 放電均價 × MLF − 充電量 × 充電均價 × MLF − 放電量 × 每 MWh 損耗成本。
+ * 來回效率 1、損耗 0 時，選窗與收益和只看價差時完全相同。
  */
 
 import { INTERVAL_HOURS } from "./nem_time.js";
@@ -16,7 +19,9 @@ const PRICE_SCALE_FACTOR = 1_000_000;
  * @typedef {object} BatterySpec
  * @property {number} power_mw 功率（MW）
  * @property {number} capacity_mwh 容量（MWh）
- * @property {number} marginal_loss_factor 損失係數（MLF），只縮放收益，不影響選窗
+ * @property {number} marginal_loss_factor 損失係數（MLF）
+ * @property {number} round_trip_efficiency 來回效率，大於 0 且不超過 1
+ * @property {number} degradation_cost_aud_per_mwh 每 MWh 放電的損耗成本（AUD），0 以上
  */
 
 /**
@@ -25,7 +30,7 @@ const PRICE_SCALE_FACTOR = 1_000_000;
  * @property {number} discharge_start_index 放電段第一個時段的索引
  * @property {number} charge_average_price 充電段均價（AUD/MWh）
  * @property {number} discharge_average_price 放電段均價（AUD/MWh）
- * @property {number} net_value 預估淨收益（AUD）
+ * @property {number} net_value 預估淨收益（AUD），已扣除效率損失與損耗成本
  */
 
 /**
@@ -43,13 +48,33 @@ export function segment_length_for(battery_spec) {
 }
 
 /**
+ * 損益兩平價差：放電均價 − 充電均價至少要高於這個值，淨收益才會為正。
+ *
+ * 由「放電量 × 放電均價 × MLF ＞ 充電量 × 充電均價 × MLF ＋ 放電量 × 損耗成本」推得：
+ * 充電均價 ×（1 ÷ 效率 − 1）＋ 損耗成本 ÷ MLF；MLF 為 1 時即 roadmap D3 的公式。
+ *
+ * @param {number} charge_average_price 充電段均價（AUD/MWh）
+ * @param {BatterySpec} battery_spec 電池規格
+ * @returns {number} 損益兩平價差（AUD/MWh）
+ * @throws {Error} 來回效率或損耗成本不合法時
+ */
+export function break_even_spread(charge_average_price, battery_spec) {
+  validate_battery_costs(battery_spec);
+  return (
+    charge_average_price * (1 / battery_spec.round_trip_efficiency - 1) +
+    battery_spec.degradation_cost_aud_per_mwh / battery_spec.marginal_loss_factor
+  );
+}
+
+/**
  * 選出淨收益最高的建議計畫（最多兩個循環）。
  *
  * @param {number[]} price_values 依時間排序的 30 分鐘電價（AUD/MWh）
  * @param {BatterySpec} battery_spec 電池規格
  * @param {number} [minimum_cycle_spread] 每循環最低價差（AUD/MWh），預設 0
- * @returns {{segment_length: number, energy_mwh: number, cycles: PlannedCycle[], total_value: number}}
- * @throws {Error} 電價含非有限數值，或最低價差為負或非數值時
+ * @returns {{segment_length: number, energy_mwh: number, discharge_energy_mwh: number, cycles: PlannedCycle[], total_value: number}}
+ *   `energy_mwh` 為每次充電量，`discharge_energy_mwh` 為每次放電量
+ * @throws {Error} 電價含非有限數值、最低價差為負或非數值，或來回效率、損耗成本不合法時
  */
 export function select_best_plan(price_values, battery_spec, minimum_cycle_spread = 0) {
   if (price_values.some((price_value) => !Number.isFinite(price_value))) {
@@ -58,18 +83,55 @@ export function select_best_plan(price_values, battery_spec, minimum_cycle_sprea
   if (!Number.isFinite(minimum_cycle_spread) || minimum_cycle_spread < 0) {
     throw new Error(`每循環最低價差必須是 0 以上的數值：${minimum_cycle_spread}`);
   }
+  validate_battery_costs(battery_spec);
   const segment_length = segment_length_for(battery_spec);
   const energy_mwh = Math.min(battery_spec.capacity_mwh, battery_spec.power_mw * segment_length * INTERVAL_HOURS);
+  const discharge_energy_mwh = energy_mwh * battery_spec.round_trip_efficiency;
   const scaled_prices = price_values.map((price_value) => Math.round(price_value * PRICE_SCALE_FACTOR));
   const segment_sums = compute_segment_sums(scaled_prices, segment_length);
   const minimum_cycle_score = Math.round(minimum_cycle_spread * PRICE_SCALE_FACTOR) * segment_length;
-  const candidate_cycles = enumerate_candidate_cycles(segment_sums, segment_length, minimum_cycle_score);
+  const score_settings = build_score_settings(battery_spec, segment_length);
+  const candidate_cycles = enumerate_candidate_cycles(segment_sums, segment_length, minimum_cycle_score, score_settings);
   const chosen_cycles = choose_best_cycles(candidate_cycles, segment_sums.length, segment_length);
   const cycles = chosen_cycles.map((candidate_cycle) =>
-    build_cycle(candidate_cycle, segment_sums, segment_length, energy_mwh, battery_spec.marginal_loss_factor),
+    build_cycle(candidate_cycle, segment_sums, segment_length, { energy_mwh, discharge_energy_mwh }, battery_spec),
   );
   const total_value = cycles.reduce((value_sum, planned_cycle) => value_sum + planned_cycle.net_value, 0);
-  return { segment_length, energy_mwh, cycles, total_value };
+  return { segment_length, energy_mwh, discharge_energy_mwh, cycles, total_value };
+}
+
+/**
+ * 檢查來回效率與損耗成本；設定檔讀取時已驗證，這裡再擋一次，避免漏傳欄位算出 NaN。
+ *
+ * @param {BatterySpec} battery_spec 電池規格
+ * @throws {Error} 來回效率不在 (0, 1]，或損耗成本為負或非數值時
+ */
+function validate_battery_costs(battery_spec) {
+  const efficiency = battery_spec.round_trip_efficiency;
+  if (!Number.isFinite(efficiency) || efficiency <= 0 || efficiency > 1) {
+    throw new Error(`來回效率必須大於 0 且不超過 1：${efficiency}`);
+  }
+  const degradation_cost = battery_spec.degradation_cost_aud_per_mwh;
+  if (!Number.isFinite(degradation_cost) || degradation_cost < 0) {
+    throw new Error(`每 MWh 損耗成本必須是 0 以上的數值：${degradation_cost}`);
+  }
+}
+
+/**
+ * 排序用分數的參數。分數＝MLF ×（效率 × 放電段總和 − 充電段總和）− 效率 × 損耗成本 × 段長（皆已放大），
+ * 與淨收益成正比（比例為 每時段電量 ÷ 放大倍數），所以依分數排序就是依淨收益排序。
+ *
+ * @param {BatterySpec} battery_spec 電池規格
+ * @param {number} segment_length 每段時段數
+ * @returns {{marginal_loss_factor: number, round_trip_efficiency: number, degradation_score: number}}
+ */
+function build_score_settings(battery_spec, segment_length) {
+  const scaled_degradation_cost = Math.round(battery_spec.degradation_cost_aud_per_mwh * PRICE_SCALE_FACTOR);
+  return {
+    marginal_loss_factor: battery_spec.marginal_loss_factor,
+    round_trip_efficiency: battery_spec.round_trip_efficiency,
+    degradation_score: battery_spec.round_trip_efficiency * scaled_degradation_cost * segment_length,
+  };
 }
 
 /**
@@ -96,16 +158,20 @@ function compute_segment_sums(scaled_prices, segment_length) {
  * @param {number[]} segment_sums 每個起點的段內價格總和
  * @param {number} segment_length 每段時段數
  * @param {number} minimum_cycle_score 每循環最低的段總和差（放大後的整數）
- * @returns {CandidateCycle[]} 價差為正且不低於門檻的配對
+ * @param {{marginal_loss_factor: number, round_trip_efficiency: number, degradation_score: number}} score_settings 分數參數
+ * @returns {CandidateCycle[]} 價差為正、不低於門檻且淨收益為正的配對；`cycle_score` 為淨收益分數
  */
-function enumerate_candidate_cycles(segment_sums, segment_length, minimum_cycle_score) {
+function enumerate_candidate_cycles(segment_sums, segment_length, minimum_cycle_score, score_settings) {
   const candidate_cycles = [];
   for (let charge_start = 0; charge_start < segment_sums.length; charge_start++) {
     for (let discharge_start = charge_start + segment_length; discharge_start < segment_sums.length; discharge_start++) {
-      const cycle_score = segment_sums[discharge_start] - segment_sums[charge_start];
-      if (cycle_score > 0 && cycle_score >= minimum_cycle_score) {
-        candidate_cycles.push({ charge_start, discharge_start, cycle_score });
-      }
+      const spread_score = segment_sums[discharge_start] - segment_sums[charge_start];
+      if (spread_score <= 0 || spread_score < minimum_cycle_score) continue;
+      const cycle_score =
+        score_settings.marginal_loss_factor *
+          (score_settings.round_trip_efficiency * segment_sums[discharge_start] - segment_sums[charge_start]) -
+        score_settings.degradation_score;
+      if (cycle_score > 0) candidate_cycles.push({ charge_start, discharge_start, cycle_score });
     }
   }
   return candidate_cycles;
@@ -160,25 +226,28 @@ function build_best_from_start(candidate_cycles, start_count) {
 }
 
 /**
- * 把候選配對換算成均價與淨收益。
+ * 把候選配對換算成均價與淨收益；運算順序與 Python 版相同，浮點結果才會一致。
  *
  * @param {CandidateCycle} candidate_cycle 選中的配對
  * @param {number[]} segment_sums 每個起點的段內價格總和
  * @param {number} segment_length 每段時段數
- * @param {number} energy_mwh 每次充放的電量
- * @param {number} marginal_loss_factor 損失係數
+ * @param {{energy_mwh: number, discharge_energy_mwh: number}} cycle_energy 每次充電量與放電量
+ * @param {BatterySpec} battery_spec 電池規格
  * @returns {PlannedCycle} 循環
  */
-function build_cycle(candidate_cycle, segment_sums, segment_length, energy_mwh, marginal_loss_factor) {
+function build_cycle(candidate_cycle, segment_sums, segment_length, cycle_energy, battery_spec) {
   const average_price_at = (start_index) => segment_sums[start_index] / segment_length / PRICE_SCALE_FACTOR;
   const charge_average_price = average_price_at(candidate_cycle.charge_start);
   const discharge_average_price = average_price_at(candidate_cycle.discharge_start);
+  const settled_spread = battery_spec.round_trip_efficiency * discharge_average_price - charge_average_price;
   return {
     charge_start_index: candidate_cycle.charge_start,
     discharge_start_index: candidate_cycle.discharge_start,
     charge_average_price,
     discharge_average_price,
-    net_value: energy_mwh * marginal_loss_factor * (discharge_average_price - charge_average_price),
+    net_value:
+      cycle_energy.energy_mwh * battery_spec.marginal_loss_factor * settled_spread -
+      cycle_energy.discharge_energy_mwh * battery_spec.degradation_cost_aud_per_mwh,
   };
 }
 
