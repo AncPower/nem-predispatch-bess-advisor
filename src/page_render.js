@@ -100,9 +100,9 @@ function describe_window(price_points, start_index, segment_length) {
  */
 export function render_kpi_row(kpi_container, dispatch_result, suggested_total_value) {
   const kpi_items = [
-    { label: "自訂條件預估淨收益", value: format_aud(dispatch_result.net_value), detail: `放電收入 ${format_aud(dispatch_result.discharge_revenue)}，充電成本 ${format_aud(dispatch_result.charge_cost)}` },
+    { label: "自訂條件預估淨收益", value: format_aud(dispatch_result.net_value), detail: `放電收入 ${format_aud(dispatch_result.discharge_revenue)}，充電成本 ${format_aud(dispatch_result.charge_cost)}，損耗成本 ${format_aud(dispatch_result.degradation_cost)}` },
     { label: "建議計畫預估淨收益", value: format_aud(suggested_total_value), detail: `差異 ${format_aud(dispatch_result.net_value - suggested_total_value)}` },
-    { label: "充電／放電電量", value: `${format_number(dispatch_result.charged_energy_mwh, 1)} / ${format_number(dispatch_result.discharged_energy_mwh, 1)} MWh`, detail: "來回效率 100%，不計損耗" },
+    { label: "充電／放電電量", value: `${format_number(dispatch_result.charged_energy_mwh, 1)} / ${format_number(dispatch_result.discharged_energy_mwh, 1)} MWh`, detail: "放電量為入網量，已扣來回效率損失" },
     { label: "預測期末電量", value: `${format_number(dispatch_result.final_soc_fraction * 100)}%`, detail: dispatch_result.final_soc_fraction > 0.05 ? "仍有電量等待之後的高價" : "已放完" },
   ];
   kpi_container.innerHTML = kpi_items
