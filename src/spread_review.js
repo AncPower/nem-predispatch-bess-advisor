@@ -83,6 +83,24 @@ export function select_period_days(day_records, start_date, end_date) {
 }
 
 /**
+ * 解析「試算標準」輸入欄：留空代表不試算，回傳 null；其餘必須是 0 以上的有限數值。
+ * 試算值只用於畫面，不寫入 `config/spread_standard.json`。
+ *
+ * @param {string} input_text 輸入欄的文字
+ * @returns {number | null} 試算標準（AUD/MWh），留空時為 null
+ * @throws {Error} 不是數值或小於 0 時
+ */
+export function parse_trial_standard(input_text) {
+  const trimmed_text = String(input_text ?? "").trim();
+  if (trimmed_text === "") return null;
+  const trial_standard = Number(trimmed_text);
+  if (!Number.isFinite(trial_standard) || trial_standard < 0) {
+    throw new Error(`試算標準必須是 0 以上的數值：${JSON.stringify(trimmed_text)}`);
+  }
+  return trial_standard;
+}
+
+/**
  * 候選標準：0 到「最高每日價差向上取整」與「目前標準」兩者的較大值，每 1 AUD/MWh 一個；
  * 目前標準不是整數時另外插入它的精確值。
  *
