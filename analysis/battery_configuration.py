@@ -1,7 +1,7 @@
 """讀取兩頁與分析層共用的設備參數 `config/battery.json`。
 
 驗證規則與 `src/shared_configuration.js` 的 `parse_battery_configuration` 相同：欄位缺漏、多出未知欄位、
-版本不符或數值超出範圍時直接報錯，不套預設值。來回效率與損耗成本目前只驗證，選窗尚未使用（#27）。
+版本不符或數值超出範圍時直接報錯，不套預設值。來回效率與損耗成本由選窗計入淨收益（#27）。
 """
 
 import json
@@ -58,13 +58,17 @@ def parse_battery_specification(configuration_payload: object) -> BatterySpecifi
         ValueError: 不是物件、欄位缺漏或多出、版本不符、數值超出範圍時。
     """
     checked_payload = check_field_names(configuration_payload)
-    read_number_field(checked_payload, "round_trip_efficiency", lambda field_value: 0 < field_value <= 1, "大於 0 且不超過 1")
-    read_number_field(checked_payload, "degradation_cost_aud_per_mwh", lambda field_value: field_value >= 0, "0 以上")
     return BatterySpecification(
         power_mw=read_number_field(checked_payload, "power_mw", lambda field_value: field_value > 0, "大於 0"),
         capacity_mwh=read_number_field(checked_payload, "capacity_mwh", lambda field_value: field_value > 0, "大於 0"),
         marginal_loss_factor=read_number_field(
             checked_payload, "marginal_loss_factor", lambda field_value: field_value > 0, "大於 0"
+        ),
+        round_trip_efficiency=read_number_field(
+            checked_payload, "round_trip_efficiency", lambda field_value: 0 < field_value <= 1, "大於 0 且不超過 1"
+        ),
+        degradation_cost_aud_per_mwh=read_number_field(
+            checked_payload, "degradation_cost_aud_per_mwh", lambda field_value: field_value >= 0, "0 以上"
         ),
     )
 

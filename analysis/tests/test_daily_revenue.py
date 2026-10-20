@@ -13,7 +13,9 @@ from analysis.daily_revenue import (
 from analysis.mms_csv import MmsRecord
 from analysis.nem_day import FIVE_MINUTE_INTERVAL, HALF_HOUR_INTERVAL, HALF_HOURS_PER_DAY
 
-FOUR_HOUR_BATTERY = BatterySpecification(power_mw=5, capacity_mwh=20, marginal_loss_factor=1)
+FOUR_HOUR_BATTERY = BatterySpecification(
+    power_mw=5, capacity_mwh=20, marginal_loss_factor=1, round_trip_efficiency=1, degradation_cost_aud_per_mwh=0
+)
 FIRST_DAY_START = datetime(2025, 4, 10)
 
 
