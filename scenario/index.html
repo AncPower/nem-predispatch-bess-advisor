@@ -62,6 +62,28 @@
 <div class="chart"><canvas id="standard_chart" role="img" aria-label="不同價差標準下的預估期間收益"></canvas></div>
 </section>
 <section class="card">
+<h3>價差標準檢討：歷史收益保留率</h3>
+<p class="sub">以 data/daily_summary.json 每天既有的最佳計畫（事後電價，計入效率與損耗）逐日套用不同門檻：當天每個循環的價差都達到門檻才執行，否則當天不做。結果是「目前標準保留多少歷史可得收益、錯過哪些日子」，不是最佳營運門檻，也沒有計入預測誤差。</p>
+<div class="nform">
+<div><label for="review_start_date">起日</label><input type="date" id="review_start_date"></div>
+<div><label for="review_end_date">迄日</label><input type="date" id="review_end_date"></div>
+<div><label for="review_event_view">事件檢視</label><select id="review_event_view"></select></div>
+<div><label for="review_trial_standard">試算標準（AUD/MWh，留空用目前標準）</label><input type="number" id="review_trial_standard" min="0" step="1" inputmode="decimal"></div>
+<div><label for="review_trial_efficiency">試算來回效率（%，留空用設定值）</label><input type="number" id="review_trial_efficiency" min="1" max="100" step="0.1" inputmode="decimal"></div>
+<div><label for="review_trial_degradation">試算損耗成本（AUD/MWh，留空用設定值）</label><input type="number" id="review_trial_degradation" min="0" step="0.1" inputmode="decimal"></div>
+</div>
+<div class="status" id="review_status" aria-live="polite"></div>
+<div aria-live="polite"><p><strong id="review_title"></strong></p><p class="sub" id="review_text"></p></div>
+<div class="kpis" id="review_kpis"></div>
+<div class="legend">
+<span><i class="sw" style="background:var(--charge)"></i>各門檻的歷史淨收益</span>
+<span><i class="sw" style="background:var(--discharge)"></i>目前標準（試算時為試算標準）</span>
+<span><i class="sw" style="background:var(--cut);height:2px"></i>最高值的 99%</span>
+</div>
+<div class="chart"><canvas id="review_chart" role="img" aria-label="不同價差標準下的歷史淨收益"></canvas></div>
+<div class="notes"><ul id="review_notes"></ul></div>
+</section>
+<section class="card">
 <h3>每日收益與特殊事件</h3>
 <p class="sub" id="daily_subtitle">每日淨收益取自離線分析層的 data/daily_summary.json（共用設備參數，計入效率與損耗），事件取自下方的事件清單。</p>
 <div class="legend">
@@ -94,6 +116,7 @@
 <li>歷史電價：手動上傳。AEMO 網站的月檔不開放跨網域讀取，網頁無法直接下載。</li>
 <li>特殊事件：開頁時讀取 repo 內的 data/special_dates.csv，內容經 PR 審核後才會更新，不呼叫 GitHub API。</li>
 <li>每日收益：開頁時讀取 repo 內的 data/daily_summary.json，由離線分析層每月更新；資料不完整的日子不畫長條。</li>
+<li>價差標準檢討：目前標準讀自 config/spread_standard.json，候選標準從 0 到「期間內最高每日價差向上取整」與目前標準的較大值，每 1 AUD/MWh 一個；可輸入試算標準、來回效率與損耗暫時改看其他情境；試算效率與損耗沿用每日摘要原本的充放電時段重算淨收益（不重新選窗，為下限估計）。頁面不會修改任何設定檔。</li>
 <li>每日電價由基準價、午間再生能源凹陷、傍晚尖峰、天氣波動與偶發尖峰組成，模擬 400 條路徑（固定亂數種子，同樣輸入得到同樣結果）。</li>
 <li>每天若電池為空，於當日最低價的連續四小時充電；之後出現的最高價連續四小時，若與充電價的價差達標即放電，否則持有，最多等待設定天數後強制放電。</li>
 <li>收益＝放電電量 ×（高價段均價 − 低價段均價）；來回效率固定 100%，不計電池損耗、輔助服務、容量收入、網路費與損失係數。</li>
