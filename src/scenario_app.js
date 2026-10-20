@@ -1,17 +1,24 @@
 /**
- * 情境工具的進入點：收集輸入、模擬與評估、歷史校準、讀取事件清單與每日摘要，交給 scenario_render 顯示。
+ * 情境工具的進入點：收集輸入、模擬與評估、歷史校準、讀取事件清單與每日摘要，交給 scenario_render 顯示；
+ * 價差標準檢討（#32）讀共用設定，計算交給 spread_review、顯示交給 spread_review_render。
  */
 
 import { fetch_daily_summary } from "./daily_summary.js";
-import { annotate_days_with_events, collect_event_dates, collect_excluded_dates, group_events_by_date } from "./event_days.js";
+import {
+  EVENT_VIEWS, annotate_days_with_events, collect_event_dates, collect_excluded_dates, filter_days_by_event_view, group_events_by_date,
+} from "./event_days.js";
 import { calibrate_from_history, parse_history_csv, select_calibration_region } from "./history_calibration.js";
 import { simulate_price_paths, summarize_hourly_percentiles } from "./price_simulation.js";
 import { MARKET_PRESETS, NEWS_ADJUSTMENTS, build_field_definitions, clamp_to_field_limits, default_parameters } from "./scenario_presets.js";
 import {
   build_field_html, draw_daily_revenue_chart, draw_hourly_chart, draw_standard_chart, render_calibration_stats, render_kpis, render_special_dates_table, render_verdict,
 } from "./scenario_render.js";
+import { fetch_battery_configuration, fetch_spread_standard } from "./shared_configuration.js";
 import { fetch_special_dates } from "./special_dates.js";
+import { review_spread_standards, select_period_days, summarize_break_even_spreads } from "./spread_review.js";
+import { describe_spread_review, draw_spread_review_chart, render_spread_review } from "./spread_review_render.js";
 import { choose_best_standard, decide_verdict, evaluate_spread_strategy, summarize_first_day, sweep_spread_standards } from "./spread_strategy.js";
+import { break_even_spread } from "./window_selection.js";
 
 const CALIBRATED_PRESET_KEY = "hist";
 const RENDER_DELAY_MILLISECONDS = 120;
@@ -31,11 +38,16 @@ const page_state = {
   history_rows: null,
   history_name: "",
   special_dates: [],
+  special_dates_loaded: false,
   daily_summary: null,
+  spread_standard: null,
+  battery_configuration: null,
+  battery_error: "",
   render_timer: null,
   hourly_chart: null,
   standard_chart: null,
   daily_chart: null,
+  review_chart: null,
 };
 
 /**
@@ -203,10 +215,12 @@ async function load_special_dates() {
   set_status("events_status", "正在讀取事件清單…");
   try {
     page_state.special_dates = await fetch_special_dates();
+    page_state.special_dates_loaded = true;
     render_special_dates_table(element_by_id("events_body"), page_state.special_dates, "事件清單目前沒有任何事件。");
     const excluded_count = collect_excluded_dates(page_state.special_dates).size;
     set_status("events_status", `共 ${page_state.special_dates.length} 筆事件，其中 ${excluded_count} 個日期在校準時預設排除。`);
     render_daily_revenue();
+    render_spread_review_section();
     if (page_state.history_rows) run_calibration();
   } catch (events_error) {
     set_status("events_status", `無法讀取事件清單：${events_error.message}`, true);
@@ -235,9 +249,108 @@ async function load_daily_summary() {
     page_state.daily_summary = await fetch_daily_summary();
     set_status("daily_status", "");
     render_daily_revenue();
+    initialize_review_period();
+    render_spread_review_section();
   } catch (summary_error) {
     set_status("daily_status", `無法讀取每日摘要：${summary_error.message}`, true);
   }
+}
+
+/** 價差標準檢討的期間欄位：範圍限定在每日摘要內，預設為整段期間。 */
+function initialize_review_period() {
+  const summary_days = page_state.daily_summary.days;
+  const first_date = summary_days[0].date;
+  const last_date = summary_days.at(-1).date;
+  for (const [element_id, default_date] of [["review_start_date", first_date], ["review_end_date", last_date]]) {
+    const date_input = element_by_id(element_id);
+    date_input.min = first_date;
+    date_input.max = last_date;
+    if (date_input.value === "") date_input.value = default_date;
+  }
+}
+
+/** 依期間、事件檢視與目前標準重算並更新價差標準檢討；每日摘要或價差標準還沒讀到時不畫。 */
+function render_spread_review_section() {
+  const { daily_summary, spread_standard } = page_state;
+  if (!daily_summary || !spread_standard) return;
+  const view_key = element_by_id("review_event_view").value;
+  if (view_key !== "include_events" && !page_state.special_dates_loaded) {
+    clear_spread_review("事件清單尚未讀到，無法套用這個事件檢視。");
+    return;
+  }
+  try {
+    const start_date = element_by_id("review_start_date").value;
+    const end_date = element_by_id("review_end_date").value;
+    const period_days = select_period_days(daily_summary.days, start_date, end_date);
+    const view_days = filter_days_by_event_view(period_days, collect_event_dates(page_state.special_dates), view_key);
+    const kept_dates = new Set(view_days.map((summary_day) => summary_day.date));
+    const battery_configuration = page_state.battery_configuration;
+    const spread_review = review_spread_standards(view_days, spread_standard.spread_standard_aud_per_mwh);
+    const cost_summary = battery_configuration
+      ? summarize_break_even_spreads(view_days, (charge_average_price) => break_even_spread(charge_average_price, battery_configuration))
+      : null;
+    const review_description = describe_spread_review(spread_review, {
+      start_date, end_date, event_view_label: EVENT_VIEWS[view_key],
+      event_removed_dates: period_days.filter((summary_day) => !kept_dates.has(summary_day.date)).map((summary_day) => summary_day.date),
+      spread_standard, battery_configuration, battery_error: page_state.battery_error, cost_summary,
+    });
+    render_spread_review({
+      title_element: element_by_id("review_title"), text_element: element_by_id("review_text"),
+      kpi_container: element_by_id("review_kpis"), notes_list: element_by_id("review_notes"),
+    }, review_description);
+    page_state.review_chart = draw_spread_review_chart(element_by_id("review_chart"), page_state.review_chart, spread_review);
+    set_status("review_status", "");
+  } catch (review_error) {
+    clear_spread_review(`無法完成價差標準檢討：${review_error.message}`);
+  }
+}
+
+/**
+ * 清掉上一次的檢討結果並顯示錯誤，避免舊結論留在畫面上。
+ *
+ * @param {string} error_message 錯誤訊息
+ */
+function clear_spread_review(error_message) {
+  render_spread_review({
+    title_element: element_by_id("review_title"), text_element: element_by_id("review_text"),
+    kpi_container: element_by_id("review_kpis"), notes_list: element_by_id("review_notes"),
+  }, { title_text: "", body_text: "", kpi_items: [], note_lines: [] });
+  page_state.review_chart?.destroy();
+  page_state.review_chart = null;
+  set_status("review_status", error_message, true);
+}
+
+/** 讀取價差標準與設備參數；設備參數讀不到時檢討照常進行，只是不顯示損益兩平價差。 */
+async function load_review_configuration() {
+  set_status("review_status", "正在讀取價差標準…");
+  try {
+    page_state.spread_standard = await fetch_spread_standard();
+  } catch (standard_error) {
+    set_status("review_status", `無法讀取價差標準：${standard_error.message}`, true);
+    return;
+  }
+  try {
+    page_state.battery_configuration = await fetch_battery_configuration();
+  } catch (battery_error) {
+    page_state.battery_error = battery_error.message;
+  }
+  set_status("review_status", "");
+  render_spread_review_section();
+}
+
+/** 綁定價差標準檢討的期間與事件檢視。 */
+function wire_review_controls() {
+  const view_select = element_by_id("review_event_view");
+  view_select.replaceChildren(...Object.entries(EVENT_VIEWS).map(([view_key, view_label]) => {
+    const view_option = document.createElement("option");
+    view_option.value = view_key;
+    view_option.textContent = view_label;
+    return view_option;
+  }));
+  for (const element_id of ["review_start_date", "review_end_date", "review_event_view"]) {
+    element_by_id(element_id).addEventListener("change", render_spread_review_section);
+  }
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render_spread_review_section);
 }
 
 /** 綁定市場、新聞、重設與三組欄位（以事件委派處理重建後的欄位）。 */
@@ -291,6 +404,8 @@ window.Chart.defaults.font.family = '"Noto Sans TC",system-ui,sans-serif';
 build_controls();
 wire_controls();
 wire_calibration();
+wire_review_controls();
 render_results();
 load_special_dates();
 load_daily_summary();
+load_review_configuration();
