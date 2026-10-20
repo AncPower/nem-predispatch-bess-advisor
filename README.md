@@ -41,8 +41,8 @@
 | 項目 | 目前 | 階段 1 預計改為 |
 |---|---|---|
 | 市場 | 預調度頁可選五個區域；情境頁有七國示意預設 | 只做 NSW1 |
-| 設備參數 | 兩頁各自設定；效率固定 100%、不計損耗 | 共用 `config/battery.json`：功率、容量、來回效率、每 MWh 損耗成本、MLF |
-| 價差標準 | 預調度頁只有「每循環最低價差」，預設 0 | 共用 `config/spread_standard.json`：目前值、生效日期、檢討人 |
+| 設備參數 | 預調度頁與分析層讀 `config/battery.json`（功率、容量、來回效率、每 MWh 損耗成本、MLF），頁面唯讀顯示；計算仍以效率 100%、不計損耗進行。情境評估頁另有自己的設定 | 計算計入效率與損耗（#27）；情境評估頁的示意設定移除（#35） |
+| 價差標準 | `config/spread_standard.json` 記錄目前值、生效日期、檢討人與檢討依據，頁面尚未讀取；預調度頁仍用「每循環最低價差」輸入欄，預設 0 | 預調度頁改讀設定檔，給出執行或等待（#28） |
 | 選窗邏輯 | `src/window_selection.js` 與 `analysis/arbitrage_plan.py` 以共用案例驗證一致 | 不變，兩頁與分析層都用同一套 |
 | 時間 | NEM 市場時間（UTC+10） | 頁面加註「台灣時間＝市場時間 − 2 小時」 |
 
@@ -109,7 +109,7 @@
 
 | 項目 | 內容 |
 |---|---|
-| 被解釋變數 | 每天用 `select_best_plan`（5 MW／20 MWh、MLF 1）算出的套利收益，取 log(1 + 收益) |
+| 被解釋變數 | 每天用 `select_best_plan` 與 `config/battery.json` 的設備參數（目前 5 MW／20 MWh、MLF 1）算出的套利收益，取 log(1 + 收益) |
 | 因素 | 日均需求、晚間尖峰需求、最小供給餘裕、日均淨進出口、雪梨天然氣事前價、NSW 電池放電功率；氣溫、太陽能與風力、屋頂型太陽能、特殊事件（#14）還沒加入，權重記為 0 |
 | 求解 | HiGHS 最小絕對誤差迴歸，權重非負、加總為 1，另外輸出 scale 與截距 |
 | 目前擬合品質 | 2024-07-01 至 2026-08-31，共 789 天；R² 約 0.46，平均絕對誤差約 A$2,721／天（收益中位數約 A$2,651／天） |
@@ -122,7 +122,7 @@
 NEM_INPUT_DIRECTORY=<原始資料目錄> uv run python -m analysis.build_factor_weights
 ```
 
-改了 `analysis/` 的程式或 `data/external/` 卻沒重新產生 JSON，CI 的 `analysis` job 會失敗。
+改了 `analysis/` 的程式、`data/external/` 或 `config/battery.json` 卻沒重新產生 JSON，CI 的 `analysis` job 會失敗。
 
 ## 本機執行
 
@@ -165,7 +165,7 @@ CI 在每個 PR 跑這兩組測試（`.github/workflows/ci.yml` 的 `test` 與 `
 
 ## 發佈
 
-GitHub Pages 從 `main` 分支根目錄發佈，合併即上線。AncPower 是 GitHub 免費方案，Pages 只能開在公開 repo，所以程式、權重與事件清單都是公開的。
+GitHub Pages 從 `main` 分支根目錄發佈，合併即上線。AncPower 是 GitHub 免費方案，Pages 只能開在公開 repo，所以程式、權重、事件清單、價差標準與設備參數（含損耗成本、MLF）都是公開的；這個範圍的決定與理由見 #23。
 
 ## 不做（目前）
 

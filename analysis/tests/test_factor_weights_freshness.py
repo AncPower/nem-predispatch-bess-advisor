@@ -26,7 +26,7 @@ def list_changed_paths(recorded_digests: dict[str, str], current_digests: dict[s
 
 
 def test_factor_weights_json_matches_current_sources() -> None:
-    """分析程式或 data/external 改了卻沒重新產生 JSON：失敗並提示重跑指令與改動的檔案。"""
+    """分析程式、data/external 或 config/battery.json 改了卻沒重新產生 JSON：失敗並提示重跑指令與改動的檔案。"""
     recorded_fingerprint = read_recorded_fingerprint()
     current_fingerprint = compute_source_fingerprint(REPOSITORY_ROOT, EXTERNAL_INPUT_RELATIVE_PATHS)
 
@@ -48,9 +48,13 @@ def test_factor_weights_json_records_raw_input_manifest() -> None:
 
 
 def test_gitattributes_pins_line_endings_of_fingerprinted_files() -> None:
-    """指紋涵蓋的程式與外部 CSV：.gitattributes 都固定為 LF，CRLF checkout 不會讓指紋改變。"""
+    """指紋涵蓋的程式、外部 CSV 與設定檔：.gitattributes 都固定為 LF，CRLF checkout 不會讓指紋改變。"""
     attribute_lines = (REPOSITORY_ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+    pinned_patterns = {"data/external/*.csv": ("data/external/", ".csv"), "config/*.json": ("config/", ".json")}
 
     assert "*.py text eol=lf" in attribute_lines
-    assert "data/external/*.csv text eol=lf" in attribute_lines
-    assert all(relative_path.startswith("data/external/") and relative_path.endswith(".csv") for relative_path in EXTERNAL_INPUT_RELATIVE_PATHS)
+    assert all(f"{file_pattern} text eol=lf" in attribute_lines for file_pattern in pinned_patterns)
+    assert all(
+        any(relative_path.startswith(path_prefix) and relative_path.endswith(path_suffix) for path_prefix, path_suffix in pinned_patterns.values())
+        for relative_path in EXTERNAL_INPUT_RELATIVE_PATHS
+    )

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from analysis import build_factor_weights
+from analysis.battery_configuration import BATTERY_CONFIGURATION_RELATIVE_PATH
 from analysis.build_factor_weights import (
     BATTERY_UNITS_RELATIVE_PATH,
     GAS_PRICE_RELATIVE_PATH,
@@ -24,6 +25,14 @@ from analysis.nem_day import FIVE_MINUTE_INTERVAL, FIVE_MINUTE_INTERVALS_PER_DAY
 SYNTHETIC_DAYS: tuple[date, ...] = tuple(date(2024, 7, 25) + timedelta(days=day_offset) for day_offset in range(12))
 MMS_TIMESTAMP_FORMAT = "%Y/%m/%d %H:%M:%S"
 GENERATED_AT = datetime(2026, 10, 19, 0, 0, 0, tzinfo=UTC)
+SYNTHETIC_BATTERY_CONFIGURATION: dict[str, float] = {
+    "schema_version": 1,
+    "power_mw": 10,
+    "capacity_mwh": 20,
+    "round_trip_efficiency": 1,
+    "degradation_cost_aud_per_mwh": 0,
+    "marginal_loss_factor": 0.95,
+}
 
 
 def synthetic_price(day_index: int, step_index: int) -> float:
@@ -62,7 +71,7 @@ def write_region_solution_file(file_path: Path) -> None:
 
 
 def write_external_files(repository_root: Path) -> None:
-    """寫合成的天然氣價與電池機組 CSV；8 月起多一台電池，讓裝置量有變化。"""
+    """寫合成的天然氣價、電池機組 CSV 與設備參數；8 月起多一台電池，讓裝置量有變化。"""
     gas_file = repository_root / GAS_PRICE_RELATIVE_PATH
     gas_file.parent.mkdir(parents=True)
     gas_lines = ["gas_date,exante_price_aud_per_gj,expost_price_aud_per_gj"]
@@ -74,6 +83,9 @@ def write_external_files(repository_root: Path) -> None:
         "UNITB1,STATIONB,2024-08-01,40,30,60,2024-08-01,2999-12-31",
     ]
     (repository_root / BATTERY_UNITS_RELATIVE_PATH).write_text("\n".join(battery_lines) + "\n", encoding="utf-8")
+    configuration_file = repository_root / BATTERY_CONFIGURATION_RELATIVE_PATH
+    configuration_file.parent.mkdir(parents=True)
+    configuration_file.write_text(json.dumps(SYNTHETIC_BATTERY_CONFIGURATION), encoding="utf-8")
 
 
 def build_synthetic_inputs(tmp_path: Path) -> tuple[Path, Path]:
@@ -133,8 +145,27 @@ def test_build_document_runs_whole_pipeline_on_synthetic_data(tmp_path: Path) ->
     assert sum(factor_weights) == pytest.approx(1.0)
     assert len(report_document["input_fingerprint"]["raw_input_files"]) == 2
     assert sorted(report_document["input_fingerprint"]["external_files"]) == sorted(
-        [GAS_PRICE_RELATIVE_PATH, BATTERY_UNITS_RELATIVE_PATH]
+        [GAS_PRICE_RELATIVE_PATH, BATTERY_UNITS_RELATIVE_PATH, BATTERY_CONFIGURATION_RELATIVE_PATH]
     )
+
+
+def test_build_document_takes_battery_specification_from_configuration_file(tmp_path: Path) -> None:
+    """每日收益用的電池規格取自 config/battery.json，不是程式裡寫死的 5 MW／20 MWh／MLF 1。"""
+    input_directory, repository_root = build_synthetic_inputs(tmp_path)
+
+    report_document = build_document(input_directory, repository_root, GENERATED_AT)
+
+    assert report_document["battery_specification"] == {"power_mw": 10, "capacity_mwh": 20, "marginal_loss_factor": 0.95}
+
+
+def test_build_document_rejects_invalid_battery_configuration(tmp_path: Path) -> None:
+    """config/battery.json 的功率為 0：丟出指出欄名的 ValueError，不產出文件。"""
+    input_directory, repository_root = build_synthetic_inputs(tmp_path)
+    invalid_configuration = {**SYNTHETIC_BATTERY_CONFIGURATION, "power_mw": 0}
+    (repository_root / BATTERY_CONFIGURATION_RELATIVE_PATH).write_text(json.dumps(invalid_configuration), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="power_mw"):
+        build_document(input_directory, repository_root, GENERATED_AT)
 
 
 def test_write_report_document_writes_readable_utf8_json(tmp_path: Path) -> None:

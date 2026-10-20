@@ -172,7 +172,7 @@
 |---|---|
 | 內容 | NSW1 每 **5 分鐘**一筆的 `RRP`（區域參考價，AUD/MWh），`PERIODID` 為 1–288。2026-10-19 更正：本檔與 #11 原本寫成 30 分鐘 |
 | 篩選 | `REGIONID = NSW1`。實測每一列都是 `PRICE_STATUS = FIRM`、`INVALIDFLAG = 0` |
-| 公式 | 1. 30 分鐘電價 = 結束於 T−25 到 T 分鐘的 6 筆 RRP 平均，和主頁讀的 30 分鐘預調度電價同一個時間單位<br>2. 每天 48 段各自跑 `select_best_plan`（5 MW／20 MWh、MLF 1），從空電池開始，不跨午夜；當天收益 = 最佳計畫的總收益<br>3. 不足 48 段的日子不算收益 |
+| 公式 | 1. 30 分鐘電價 = 結束於 T−25 到 T 分鐘的 6 筆 RRP 平均，和主頁讀的 30 分鐘預調度電價同一個時間單位<br>2. 每天 48 段各自跑 `select_best_plan`，電池取自 `config/battery.json`（目前 5 MW／20 MWh、MLF 1），從空電池開始，不跨午夜；當天收益 = 最佳計畫的總收益<br>3. 不足 48 段的日子不算收益 |
 | 程式 | `analysis/daily_revenue.py`。`select_best_plan` 的 Python 版在 `analysis/arbitrage_plan.py`，和 JS 版用 `tests/fixtures/select_best_plan_cases.json` 驗證結果相同 |
 | 實測 | 2023-12-01 到 2026-08-31 共 1,005 天，每天都有完整 288 筆。每日收益中位數 2,651 AUD，最高 378,665 AUD（2024-05-08，在擬合期間之前） |
 
@@ -230,7 +230,7 @@ log(1 + 收益) = target.mean + target.standard_deviation
 | `schema_version` | 格式版本，目前是 1 |
 | `generated_at` | 產生時間，ISO 8601 UTC（`Z` 結尾） |
 | `period` | `start_date`、`end_date`、`day_count`（擬合用的天數）、`excluded_days`（期間內被排除的日子與原因） |
-| `battery_specification` | 算收益用的電池：5 MW／20 MWh、MLF 1 |
+| `battery_specification` | 算收益用的電池，取自 `config/battery.json`（目前 5 MW／20 MWh、MLF 1） |
 | `target` | `name`、`transform`（`log1p`）、log 收益的 `mean` 與 `standard_deviation`、收益中位數 `median_aud` |
 | `model` | `objective`、`solver`、`solver_version`、`intercept`、`scale`、`prediction_formula` |
 | `factors[]` | 每個因素一筆：`factor_name`、`unit`、`description`、`weight`、`direction`、`correlation`、原始值的 `mean` 與 `standard_deviation`、`monthly_baseline`、`latest_value` |

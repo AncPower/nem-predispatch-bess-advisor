@@ -39,6 +39,7 @@ a{color:var(--charge)}
 .hint{font-size:13px;color:var(--ink-3);margin:0 0 8px}
 select,input[type=text],input[type=url],input[type=number]{width:100%;font:inherit;font-size:14px;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;background:var(--panel);color:var(--ink)}
 input[type=number]{text-align:right}
+input[readonly]{background:var(--paper);color:var(--ink-2);cursor:default}
 .drop{border:1.5px dashed var(--rule);border-radius:8px;padding:14px;text-align:center;font-size:14px;color:var(--ink-2);cursor:pointer}
 .drop.over{border-color:var(--charge);background:var(--charge-soft)}
 .btn{font:inherit;font-size:14px;padding:6px 12px;border:1px solid var(--rule);border-radius:6px;background:transparent;color:var(--ink);cursor:pointer}
