@@ -16,6 +16,7 @@ const MODULE_LAYERS = Object.freeze({
   "spread_strategy.js": 1,
   "history_calibration.js": 1,
   "event_days.js": 1,
+  "spread_review.js": 1,
   "dashboard_source.js": 2,
   "upload_parser.js": 2,
   "special_dates.js": 2,
@@ -23,6 +24,7 @@ const MODULE_LAYERS = Object.freeze({
   "shared_configuration.js": 2,
   "page_render.js": 3,
   "scenario_render.js": 3,
+  "spread_review_render.js": 3,
   "app.js": 4,
   "scenario_app.js": 4,
 });

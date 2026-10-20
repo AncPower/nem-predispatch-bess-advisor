@@ -9,6 +9,7 @@ import { fetch_json_with_retry } from "./http_request.js";
 
 export const SUPPORTED_SCHEMA_VERSION = 1;
 export const BATTERY_CONFIGURATION_URL = new URL("../config/battery.json", import.meta.url).href;
+export const SPREAD_STANDARD_URL = new URL("../config/spread_standard.json", import.meta.url).href;
 
 const BATTERY_FILE_LABEL = "config/battery.json";
 const SPREAD_STANDARD_FILE_LABEL = "config/spread_standard.json";
@@ -55,18 +56,36 @@ const ISO_DATE_LENGTH = 10;
  * @throws {Error} 讀不到檔案、檔案不是合法 JSON，或內容不合法時
  */
 export async function fetch_battery_configuration(request_options = {}) {
-  let configuration_payload;
+  return parse_battery_configuration(await fetch_configuration_json(BATTERY_CONFIGURATION_URL, BATTERY_FILE_LABEL, request_options));
+}
+
+/**
+ * 讀取並驗證 `config/spread_standard.json`，重試規則同 `fetch_battery_configuration`。
+ *
+ * @param {Partial<import("./http_request.js").RequestOptions>} [request_options] 可替換的 fetch、等待與逾時
+ * @returns {Promise<SpreadStandard>} 價差標準
+ * @throws {Error} 讀不到檔案、檔案不是合法 JSON，或內容不合法時
+ */
+export async function fetch_spread_standard(request_options = {}) {
+  return parse_spread_standard(await fetch_configuration_json(SPREAD_STANDARD_URL, SPREAD_STANDARD_FILE_LABEL, request_options));
+}
+
+/**
+ * 讀取設定檔的 JSON；不是合法 JSON 時，錯誤訊息指出檔名。
+ *
+ * @param {string} configuration_url 網址
+ * @param {string} file_label 檔名
+ * @param {Partial<import("./http_request.js").RequestOptions>} request_options 可替換的 fetch、等待與逾時
+ * @returns {Promise<unknown>} JSON 內容
+ * @throws {Error} 讀不到檔案或不是合法 JSON 時
+ */
+async function fetch_configuration_json(configuration_url, file_label, request_options) {
   try {
-    configuration_payload = await fetch_json_with_retry(
-      BATTERY_CONFIGURATION_URL,
-      { cache: "no-store" },
-      { source_label: BATTERY_FILE_LABEL, ...request_options },
-    );
+    return await fetch_json_with_retry(configuration_url, { cache: "no-store" }, { source_label: file_label, ...request_options });
   } catch (request_error) {
     if (!(request_error instanceof SyntaxError)) throw request_error;
-    throw new Error(`${BATTERY_FILE_LABEL} 不是合法的 JSON：${request_error.message}`, { cause: request_error });
+    throw new Error(`${file_label} 不是合法的 JSON：${request_error.message}`, { cause: request_error });
   }
-  return parse_battery_configuration(configuration_payload);
 }
 
 /**
