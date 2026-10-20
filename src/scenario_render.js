@@ -1,10 +1,11 @@
 /**
- * 情境工具的畫面：欄位、判斷燈號、KPI、兩張圖、校準統計、備註表。只負責顯示，不做計算。
+ * 情境工具的畫面：欄位、判斷燈號、KPI、兩張圖、校準統計、事件表。只負責顯示，不做計算。
  *
- * 圖表使用全域的 Chart.js（由 scenario/index.html 從 cdnjs 載入）。備註內容來自任何人都能寫的
- * GitHub issue，一律以 textContent 寫入。
+ * 圖表使用全域的 Chart.js（由 scenario/index.html 從 cdnjs 載入）。事件清單是公開資料，
+ * 內容一律以 textContent 寫入；來源網址已由 `special_dates.js` 限定為 http 或 https。
  */
 
+import { EVENT_CATEGORY_LABELS, IMPACT_DIRECTION_LABELS } from "./event_days.js";
 import { format_money, format_number } from "./number_format.js";
 import { BATTERY_DURATION_HOURS } from "./scenario_presets.js";
 
@@ -16,7 +17,7 @@ const VERDICT_STYLES = Object.freeze({
 const HOUR_LABELS = Object.freeze(Array.from({ length: 24 }, (_unused, hour_value) => `${hour_value}:00`));
 const PERCENTILE_NAMES = Object.freeze(["P10", "P90", "中位數"]);
 const SWEEP_SERIES_NAMES = Object.freeze(["期望收益", "建議標準", "目前標準"]);
-const NOTE_COLUMN_COUNT = 7;
+const EVENT_COLUMN_COUNT = 8;
 
 /**
  * 讀取 CSS 色彩變數，讓圖表跟著淺色或深色主題。
@@ -214,7 +215,7 @@ export function draw_standard_chart(chart_canvas, previous_chart, sweep_points, 
 export function render_calibration_stats(stats_container, calibration_stats) {
   const stat_items = [
     ["使用天數", `${calibration_stats.used_days} 天`],
-    ["排除備註日期", `${calibration_stats.excluded_days} 天`],
+    ["排除事件日", `${calibration_stats.excluded_days} 天`],
     ["基準電價", format_number(calibration_stats.base_level)],
     ["午間凹陷", `${format_number(calibration_stats.solar_dip * 100)}%`],
     ["傍晚尖峰", `${format_number(calibration_stats.evening_peak * 100)}%`],
@@ -232,57 +233,71 @@ export function render_calibration_stats(stats_container, calibration_stats) {
 }
 
 /**
- * 畫備註表；內容一律以 textContent 寫入。
+ * 畫事件表，新的事件在上；內容一律以 textContent 寫入。
  *
  * @param {HTMLTableSectionElement} table_body 表身
- * @param {import("./special_date_notes.js").SpecialDateNote[]} special_date_notes 備註
- * @param {string} empty_message 沒有備註時顯示的文字
+ * @param {readonly import("./special_dates.js").SpecialDate[]} special_dates 事件（依起日排序）
+ * @param {string} empty_message 沒有事件時顯示的文字
  */
-export function render_notes_table(table_body, special_date_notes, empty_message) {
-  if (special_date_notes.length === 0) {
+export function render_special_dates_table(table_body, special_dates, empty_message) {
+  if (special_dates.length === 0) {
     const empty_row = document.createElement("tr");
     const empty_cell = document.createElement("td");
-    empty_cell.colSpan = NOTE_COLUMN_COUNT;
+    empty_cell.colSpan = EVENT_COLUMN_COUNT;
     empty_cell.className = "muted";
     empty_cell.textContent = empty_message;
     empty_row.append(empty_cell);
     table_body.replaceChildren(empty_row);
     return;
   }
-  table_body.replaceChildren(...special_date_notes.map(build_note_row));
+  table_body.replaceChildren(...[...special_dates].reverse().map(build_special_date_row));
 }
 
 /**
- * 一筆備註的表格列。
+ * 事件期間的顯示文字（NEM 時間）。
  *
- * @param {import("./special_date_notes.js").SpecialDateNote} special_note 備註
+ * @param {import("./special_dates.js").SpecialDate} special_date 事件
+ * @returns {string} 例如「2026-06-12 17:00 至 21:00」
+ */
+export function format_event_period(special_date) {
+  const is_single_day = special_date.start_date === special_date.end_date;
+  if (special_date.start_time === "") return is_single_day ? special_date.start_date : `${special_date.start_date} 至 ${special_date.end_date}`;
+  const start_text = `${special_date.start_date} ${special_date.start_time}`;
+  return is_single_day ? `${start_text} 至 ${special_date.end_time}` : `${start_text} 至 ${special_date.end_date} ${special_date.end_time}`;
+}
+
+/**
+ * 一筆事件的表格列。
+ *
+ * @param {import("./special_dates.js").SpecialDate} special_date 事件
  * @returns {HTMLTableRowElement} 表格列
  */
-function build_note_row(special_note) {
-  const note_row = document.createElement("tr");
+function build_special_date_row(special_date) {
+  const event_row = document.createElement("tr");
   const add_text_cell = (cell_text, cell_class) => {
     const table_cell = document.createElement("td");
     table_cell.textContent = cell_text;
     if (cell_class) table_cell.className = cell_class;
-    note_row.append(table_cell);
+    event_row.append(table_cell);
   };
-  add_text_cell(special_note.note_date ?? `${special_note.raw_date_text}（格式無法辨識）`);
-  add_text_cell(special_note.note_time);
-  add_text_cell(special_note.market_name);
-  add_text_cell(special_note.category_name);
-  add_text_cell(special_note.note_text, "note-text");
+  add_text_cell(format_event_period(special_date));
+  add_text_cell(EVENT_CATEGORY_LABELS[special_date.category]);
+  add_text_cell(special_date.event_name);
+  add_text_cell(special_date.summary, "note-text");
+  add_text_cell(IMPACT_DIRECTION_LABELS[special_date.impact_direction]);
   const tag_cell = document.createElement("td");
   const tag_element = document.createElement("span");
-  tag_element.className = special_note.exclude_from_calibration ? "tag ex" : "tag";
-  tag_element.textContent = special_note.exclude_from_calibration ? "排除" : "納入";
+  tag_element.className = special_date.exclude_by_default ? "tag ex" : "tag";
+  tag_element.textContent = special_date.exclude_by_default ? "預設排除" : "納入";
   tag_cell.append(tag_element);
   const link_cell = document.createElement("td");
-  const issue_link = document.createElement("a");
-  issue_link.href = special_note.issue_url;
-  issue_link.target = "_blank";
-  issue_link.rel = "noopener";
-  issue_link.textContent = `#${special_note.issue_number}`;
-  link_cell.append(issue_link);
-  note_row.append(tag_cell, link_cell);
-  return note_row;
+  const source_link = document.createElement("a");
+  source_link.href = special_date.source_url;
+  source_link.target = "_blank";
+  source_link.rel = "noopener noreferrer";
+  source_link.textContent = new URL(special_date.source_url).hostname;
+  link_cell.append(source_link);
+  event_row.append(tag_cell, link_cell);
+  add_text_cell(`${special_date.added_by} 新增／${special_date.reviewed_by} 審核`);
+  return event_row;
 }

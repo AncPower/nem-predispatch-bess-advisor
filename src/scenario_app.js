@@ -1,14 +1,15 @@
 /**
- * 情境工具的進入點：收集輸入、模擬與評估、歷史校準、讀取 GitHub 備註，交給 scenario_render 顯示。
+ * 情境工具的進入點：收集輸入、模擬與評估、歷史校準、讀取事件清單，交給 scenario_render 顯示。
  */
 
+import { collect_excluded_dates } from "./event_days.js";
 import { calibrate_from_history, parse_history_csv, select_calibration_region } from "./history_calibration.js";
 import { simulate_price_paths, summarize_hourly_percentiles } from "./price_simulation.js";
 import { MARKET_PRESETS, NEWS_ADJUSTMENTS, build_field_definitions, clamp_to_field_limits, default_parameters } from "./scenario_presets.js";
 import {
-  build_field_html, draw_hourly_chart, draw_standard_chart, render_calibration_stats, render_kpis, render_notes_table, render_verdict,
+  build_field_html, draw_hourly_chart, draw_standard_chart, render_calibration_stats, render_kpis, render_special_dates_table, render_verdict,
 } from "./scenario_render.js";
-import { build_new_note_url, collect_excluded_dates, fetch_special_date_notes } from "./special_date_notes.js";
+import { fetch_special_dates } from "./special_dates.js";
 import { choose_best_standard, decide_verdict, evaluate_spread_strategy, summarize_first_day, sweep_spread_standards } from "./spread_strategy.js";
 
 const CALIBRATED_PRESET_KEY = "hist";
@@ -28,7 +29,7 @@ const page_state = {
   applied_news: [],
   history_rows: null,
   history_name: "",
-  special_date_notes: [],
+  special_dates: [],
   render_timer: null,
   hourly_chart: null,
   standard_chart: null,
@@ -174,7 +175,7 @@ async function load_history(history_file) {
 }
 
 /**
- * 以目前的歷史資料與排除日期校準，市場切到「歷史校準」。
+ * 以目前的歷史資料與預設排除的事件日校準，市場切到「歷史校準」。
  *
  * @param {string} [region_message] 區域選擇的說明
  */
@@ -183,7 +184,7 @@ function run_calibration(region_message = "") {
   const base_key = page_state.preset_key === CALIBRATED_PRESET_KEY ? page_state.market_presets[CALIBRATED_PRESET_KEY].source_preset_key : page_state.preset_key;
   try {
     const calibration_result = calibrate_from_history(
-      page_state.history_rows, collect_excluded_dates(page_state.special_date_notes), MARKET_PRESETS[base_key], page_state.history_name,
+      page_state.history_rows, collect_excluded_dates(page_state.special_dates), MARKET_PRESETS[base_key], page_state.history_name,
     );
     page_state.market_presets[CALIBRATED_PRESET_KEY] = { ...calibration_result.calibrated_preset, source_preset_key: base_key };
     render_calibration_stats(element_by_id("calibration_stats"), calibration_result.calibration_stats);
@@ -194,34 +195,18 @@ function run_calibration(region_message = "") {
   }
 }
 
-/** 從 GitHub 讀取備註，更新表格；有歷史資料時依新的排除日期重新校準。 */
-async function load_special_date_notes() {
-  set_status("notes_status", "正在讀取 GitHub 上的備註…");
+/** 讀取 `data/special_dates.csv`，更新事件表；有歷史資料時依新的排除日期重新校準。 */
+async function load_special_dates() {
+  set_status("events_status", "正在讀取事件清單…");
   try {
-    page_state.special_date_notes = await fetch_special_date_notes();
-    render_notes_table(element_by_id("notes_body"), page_state.special_date_notes, "目前沒有未關閉的備註。");
-    const excluded_count = collect_excluded_dates(page_state.special_date_notes).size;
-    set_status("notes_status", `共 ${page_state.special_date_notes.length} 筆備註，其中 ${excluded_count} 個日期在校準時排除。`);
+    page_state.special_dates = await fetch_special_dates();
+    render_special_dates_table(element_by_id("events_body"), page_state.special_dates, "事件清單目前沒有任何事件。");
+    const excluded_count = collect_excluded_dates(page_state.special_dates).size;
+    set_status("events_status", `共 ${page_state.special_dates.length} 筆事件，其中 ${excluded_count} 個日期在校準時預設排除。`);
     if (page_state.history_rows) run_calibration();
-  } catch (notes_error) {
-    set_status("notes_status", `無法讀取備註：${notes_error.message}`, true);
+  } catch (events_error) {
+    set_status("events_status", `無法讀取事件清單：${events_error.message}`, true);
   }
-}
-
-/** 打開預先填好欄位的 GitHub issue 表單。 */
-function open_new_note_form() {
-  const note_fields = {
-    note_date: element_by_id("note_date").value,
-    note_time: element_by_id("note_time").value,
-    note_market: element_by_id("note_market").value.trim(),
-    note_text: element_by_id("note_text").value.trim(),
-  };
-  if (!note_fields.note_date) {
-    set_status("notes_status", "請先填入日期。", true);
-    return;
-  }
-  window.open(build_new_note_url(note_fields), "_blank", "noopener");
-  set_status("notes_status", "已在新分頁打開 GitHub 表單，選好類別與是否排除後按 Create 送出；回到這頁按「重新整理備註」即可看到。");
 }
 
 /** 綁定市場、新聞、重設與三組欄位（以事件委派處理重建後的欄位）。 */
@@ -245,8 +230,8 @@ function wire_controls() {
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render_results);
 }
 
-/** 綁定歷史電價上傳與備註按鈕。 */
-function wire_calibration_and_notes() {
+/** 綁定歷史電價上傳。 */
+function wire_calibration() {
   const drop_zone = element_by_id("calibration_drop");
   const file_input = element_by_id("calibration_file");
   drop_zone.addEventListener("click", () => file_input.click());
@@ -268,13 +253,11 @@ function wire_calibration_and_notes() {
     if (chosen_file) load_history(chosen_file);
     file_input.value = "";
   });
-  element_by_id("new_note_button").addEventListener("click", open_new_note_form);
-  element_by_id("refresh_notes_button").addEventListener("click", load_special_date_notes);
 }
 
 window.Chart.defaults.font.family = '"Noto Sans TC",system-ui,sans-serif';
 build_controls();
 wire_controls();
-wire_calibration_and_notes();
+wire_calibration();
 render_results();
-load_special_date_notes();
+load_special_dates();

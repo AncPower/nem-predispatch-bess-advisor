@@ -14,7 +14,7 @@
 | 1 | AEMO 儀表板 API（預調度電價） | 網頁使用中 | `src/dashboard_source.js` |
 | 2 | NEMWeb 預調度檔（手動上傳） | 網頁使用中 | `src/upload_parser.js` |
 | 3 | AEMO 每月電價與需求檔（手動上傳） | 網頁使用中 | `src/history_calibration.js` |
-| 4 | GitHub Issues，標籤 `special-date` | 網頁使用中 | `src/special_date_notes.js` |
+| 4 | 特殊事件清單 `data/special_dates.csv` | 網頁使用中（#31） | `data/special_dates.csv`、`src/special_dates.js`、`src/event_days.js` |
 | 5 | 情境工具的市場預設值 | 網頁使用中，**沒有原始來源** | `src/scenario_presets.js` |
 | 6 | AEMO STTM 雪梨天然氣每日價格 | #11 使用中 | `data/external/sttm_sydney_daily_price.csv`、`analysis/external_factors.py` |
 | 7 | AER 天然氣財政年度平均價 | 已存進 repo，只用來核對 #6 | `data/external/aer_gas_market_prices_financial_year.csv` |
@@ -24,7 +24,7 @@
 | 11 | AEMO 機組發電量 `DISPATCH_UNIT_SCADA` | #11 規劃中 | — |
 | 12 | AEMO 屋頂型太陽能 `ROOFTOP_PV_ACTUAL` | #11 規劃中 | — |
 
-特殊事件（#14）還沒有資料，補上後加進本表。#6、#8、#9 算出的權重寫在 `data/factor_weights.json`，格式見文末〈輸出：`data/factor_weights.json`〉。#9 的電價另外算成每日摘要 `data/daily_summary.json`（#30），格式見〈輸出：`data/daily_summary.json`〉。
+特殊事件清單（#4）目前只有標題列，首批事件另開 issue 整理；納入迴歸是階段 2 的工作（roadmap L6）。#6、#8、#9 算出的權重寫在 `data/factor_weights.json`，格式見文末〈輸出：`data/factor_weights.json`〉。#9 的電價另外算成每日摘要 `data/daily_summary.json`（#30），格式見〈輸出：`data/daily_summary.json`〉。
 
 ## 網頁使用中的來源
 
@@ -61,16 +61,54 @@
 | 更新 | 使用者手動上傳 |
 | 限制 | AEMO 網站沒有開放跨網域讀取 |
 
-### 4. GitHub Issues：特殊日期備註
+### 4. 特殊事件清單：`data/special_dates.csv`
+
+2026-10-20 起取代原本的 GitHub Issues（標籤 `special-date`）與 issue 表單（#31，roadmap L3）。原本的做法任何人都能寫、沒有審核、沒有固定欄位，也受 GitHub API 未登入每小時 60 次的限制；改為 repo 內的檔案後，新增與修改都經 PR 審核，網頁直接讀同網域的靜態檔。
 
 | 項目 | 說明 |
 |---|---|
-| 網址 | `https://api.github.com/repos/AncPower/nem-predispatch-bess-advisor/issues?labels=special-date&state=open` |
-| 內容 | 使用者用 issue 表單記下的日期、時間、市場與補充說明 |
-| 意義 | 資料特殊的日子，例如極端天氣、機組事故、資料異常 |
-| 用在哪裡 | 勾選「校準時排除此日」的日期，不納入 #3 的歷史校準 |
-| 更新 | 網頁開啟時讀取，或按「重新整理備註」 |
-| 限制 | 未登入時，每個網路每小時只能呼叫 60 次；2026-10-19 查詢時還沒有任何這個標籤的 issue |
+| 位置 | repo 內的 `data/special_dates.csv`，隨 GitHub Pages 發佈，所有人都看得到（#23） |
+| 內容 | 每筆事件一行：期間、類別、名稱、一句話說明、影響方向、外部來源、是否預設排除、新增人與審核人 |
+| 意義 | 由外部來源認定、可能推高或壓低電價的事件。不可只因電價或收益異常就標注，避免用結果解釋結果 |
+| 用在哪裡 | 情境評估頁的事件表；`exclude_by_default = true` 的事件涵蓋的日期不納入 #3 的歷史校準；三種檢視（含事件日、排除事件日、只看事件日）的篩選給 #32、#33 使用。階段 2 產生事件旗標納入迴歸（L6） |
+| 更新 | 開 PR 修改檔案，附外部來源，由新增人以外的人審核後合併 |
+| 驗證 | `src/special_dates.js` 的 `parse_special_dates_csv`。CI 的 `test` job 以 `tests/special_dates.test.js` 驗證 repo 內的檔案，任何一行不合法就失敗並指出行號；頁面讀到不合法的檔案時顯示同樣的錯誤，不略過任何一行 |
+| 限制 | 起時、迄時只供顯示：事件只要有一部分時段落在某個交易日，那一天就算事件日。欄位內不可換行 |
+
+欄位（標題列必須完全相同、順序固定；檔案為 UTF-8，可有 BOM）：
+
+| 欄位 | 必填 | 格式與規則 |
+|---|---|---|
+| `start_date` | 是 | `YYYY-MM-DD`，NEM 時間，必須是實際存在的日期 |
+| `end_date` | 是 | `YYYY-MM-DD`，不早於 `start_date`；單日事件與起日相同 |
+| `start_time` | 否 | `HH:MM`（00:00 至 23:59）。與 `end_time` 一起填，或一起留空代表整天 |
+| `end_time` | 否 | `HH:MM`；起迄日相同時必須晚於 `start_time` |
+| `category` | 是 | 下表六個代碼之一 |
+| `event_name` | 是 | 事件名稱 |
+| `summary` | 是 | 一句話說明；含逗號時整欄用雙引號包起來 |
+| `impact_direction` | 是 | `raise`（推高）、`lower`（壓低）、`uncertain`（不確定） |
+| `source_url` | 是 | 外部來源的完整網址，只接受 `http` 與 `https`（AEMO 市場通知、AER 報告、氣象預警、新聞） |
+| `exclude_by_default` | 是 | `true` 或 `false`：是否預設排除。目前用於歷史校準；#32、#33 的「排除事件日」檢視要排除全部事件或只排除這類事件，由各自的 issue 決定 |
+| `added_by` | 是 | 新增人 |
+| `reviewed_by` | 是 | 審核人，必須和 `added_by` 不同 |
+
+類別代碼（`src/event_days.js` 的 `EVENT_CATEGORY_LABELS`）：
+
+| 代碼 | 類別 |
+|---|---|
+| `unit_or_network_outage` | 機組或輸電事故 |
+| `aemo_market_intervention` | AEMO 市場干預 |
+| `extreme_weather` | 極端天氣 |
+| `price_cap_or_cpt` | 價格上限或累積價格門檻觸發 |
+| `policy_or_rule_announcement` | 政策或規則公告 |
+| `data_anomaly` | 資料異常 |
+
+範例（一列）：
+
+```csv
+start_date,end_date,start_time,end_time,category,event_name,summary,impact_direction,source_url,exclude_by_default,added_by,reviewed_by
+2026-06-12,2026-06-12,17:00,21:00,unit_or_network_outage,範例事故,"兩部機組跳脫，傍晚價格觸頂",raise,https://example.com/notice,true,alice,bob
+```
 
 ### 5. 情境工具的市場預設值
 
