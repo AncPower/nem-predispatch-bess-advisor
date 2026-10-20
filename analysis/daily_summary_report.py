@@ -11,7 +11,7 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from analysis.arbitrage_plan import ArbitragePlan, BatterySpecification, PlannedCycle
 from analysis.daily_revenue import DailyPlanResult
