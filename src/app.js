@@ -2,6 +2,7 @@
  * 頁面進入點：讀取資料（自動或手動上傳）、收集輸入、呼叫計算、交給 page_render 顯示。
  */
 
+import { assess_data_freshness, format_data_freshness } from "./data_freshness.js";
 import { fetch_dashboard_report, parse_dashboard_report } from "./dashboard_source.js";
 import { format_nem_label, interval_start_minute } from "./nem_time.js";
 import { format_number } from "./number_format.js";
@@ -11,11 +12,14 @@ import { find_remaining_energy_markers, simulate_threshold_dispatch } from "./th
 import { parse_predispatch_csv } from "./upload_parser.js";
 import { select_best_plan, suggest_price_thresholds } from "./window_selection.js";
 
+const REGION_ID = "NSW1";
 const AUTO_REFRESH_INTERVAL_MILLISECONDS = 5 * 60_000;
+const FRESHNESS_CHECK_INTERVAL_MILLISECONDS = 60_000;
 const SWEEP_STEP_COUNT = 30;
 const MINIMUM_SWEEP_RANGE = 50;
 const ZIP_FILE_SIGNATURE = Object.freeze([0x50, 0x4b]);
-const RESULT_CARD_IDS = Object.freeze(["plan_card", "kpi_row", "price_chart_card", "sweep_chart_card"]);
+const RESULT_CARD_IDS = Object.freeze(["plan_card", "trial_card", "kpi_row", "price_chart_card", "sweep_chart_card"]);
+const FRESHNESS_ELEMENT_IDS = Object.freeze(["freshness_status", "plan_freshness"]);
 
 const element_by_id = (element_id) => document.getElementById(element_id);
 
@@ -23,6 +27,8 @@ const page_state = {
   battery_configuration: null,
   region_forecasts: null,
   origin_text: "",
+  fetched_at_milliseconds: null,
+  fetched_time_label: "",
   price_points: [],
   plan_result: null,
   thresholds_adjusted: false,
@@ -44,18 +50,40 @@ function set_status(status_message, is_error = false) {
   status_element.className = is_error ? "status err" : "status";
 }
 
-/** 從 AEMO 儀表板 API 讀取；失敗時保留上一次成功的資料。 */
+/**
+ * 你的電腦時間的「時:分」。
+ *
+ * @param {Date} local_date 時間
+ * @returns {string} 例如 `23:05`
+ */
+function format_local_time(local_date) {
+  return local_date.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** 依最後一次成功取得的時間，更新側欄與建議計畫卡片的時效提示；超過 35 分鐘改用錯誤樣式。 */
+function update_freshness_view() {
+  if (page_state.fetched_at_milliseconds === null) return;
+  const data_freshness = assess_data_freshness(page_state.fetched_at_milliseconds, Date.now());
+  const freshness_text = `${format_data_freshness(data_freshness, page_state.fetched_time_label)}。`;
+  for (const element_id of FRESHNESS_ELEMENT_IDS) {
+    const freshness_element = element_by_id(element_id);
+    freshness_element.textContent = freshness_text;
+    freshness_element.className = data_freshness.is_stale ? "status err" : "status";
+  }
+}
+
+/** 從 AEMO 儀表板 API 讀取；失敗時保留上一次成功的資料，並更新時效提示。 */
 async function load_from_dashboard() {
   if (page_state.is_loading) return;
   page_state.is_loading = true;
   set_status("正在連線 AEMO…");
   try {
     const region_forecasts = parse_dashboard_report(await fetch_dashboard_report());
-    const read_time = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
-    apply_region_forecasts(region_forecasts, `來源：AEMO 儀表板 API，讀取時間 ${read_time}（你的電腦時間）`);
+    apply_region_forecasts(region_forecasts, "來源：AEMO 儀表板 API");
   } catch (load_error) {
     const kept_note = page_state.region_forecasts ? "畫面保留上一次成功的資料" : "請改用下方手動上傳";
     set_status(`讀取失敗：${load_error.message}。${kept_note}。`, true);
+    update_freshness_view();
   } finally {
     page_state.is_loading = false;
   }
@@ -71,7 +99,7 @@ async function load_from_upload(upload_file) {
     set_status("讀取中…");
     const region_forecasts = parse_predispatch_csv(await read_upload_text(upload_file));
     set_auto_refresh(false);
-    apply_region_forecasts(region_forecasts, `來源：手動上傳 ${upload_file.name}（自動更新已暫停）`);
+    apply_region_forecasts(region_forecasts, `來源：手動上傳 ${upload_file.name}（自動更新已暫停，時效以上傳時間計）`);
   } catch (upload_error) {
     set_status(`上傳的檔案無法讀取：${upload_error.message}`, true);
   }
@@ -95,7 +123,7 @@ async function read_upload_text(upload_file) {
 }
 
 /**
- * 存下新資料並重新分析目前區域。
+ * 存下新資料並重新分析 NSW1；有 NSW1 預測才記為一次成功取得，更新時效提示。
  *
  * @param {import("./dashboard_source.js").RegionForecasts} region_forecasts 各區域預測
  * @param {string} origin_text 資料來源說明
@@ -103,7 +131,11 @@ async function read_upload_text(upload_file) {
 function apply_region_forecasts(region_forecasts, origin_text) {
   page_state.region_forecasts = region_forecasts;
   page_state.origin_text = origin_text;
-  analyse_region();
+  if (!analyse_region()) return;
+  const fetched_date = new Date();
+  page_state.fetched_at_milliseconds = fetched_date.getTime();
+  page_state.fetched_time_label = format_local_time(fetched_date);
+  update_freshness_view();
 }
 
 /**
@@ -142,13 +174,16 @@ function read_minimum_cycle_spread() {
   return Number.isFinite(input_value) ? Math.max(0, input_value) : 0;
 }
 
-/** 對目前選的區域重算建議計畫並更新畫面。 */
+/**
+ * 對 NSW1 重算建議計畫並更新畫面。
+ *
+ * @returns {boolean} 資料中是否有 NSW1 的預測電價
+ */
 function analyse_region() {
-  const region_id = element_by_id("region_select").value;
-  const price_points = page_state.region_forecasts?.[region_id];
+  const price_points = page_state.region_forecasts?.[REGION_ID];
   if (!price_points?.length) {
-    set_status(`資料中沒有 ${region_id} 的預測電價。`, true);
-    return;
+    set_status(`資料中沒有 ${REGION_ID} 的預測電價。`, true);
+    return false;
   }
   const price_values = price_points.map((price_point) => price_point.price);
   page_state.price_points = price_points;
@@ -156,15 +191,16 @@ function analyse_region() {
   set_status(`${page_state.origin_text}。`);
   element_by_id("empty_card").hidden = true;
   RESULT_CARD_IDS.forEach((card_id) => { element_by_id(card_id).hidden = false; });
-  element_by_id("plan_subtitle").textContent = build_plan_subtitle(region_id, price_points);
+  element_by_id("plan_subtitle").textContent = build_plan_subtitle(REGION_ID, price_points);
   render_plan_steps(element_by_id("plan_steps"), page_state.plan_result, price_points);
   adjust_slider_ranges(price_values);
   if (!page_state.thresholds_adjusted) apply_suggested_thresholds();
   update_dispatch_view();
+  return true;
 }
 
 /**
- * 建議計畫的副標題：區域、預測期間與時段數。
+ * 建議計畫的副標題：區域、預測期間（NEM 時間與台灣時間換算）與時段數。
  *
  * @param {string} region_id 區域代碼
  * @param {{interval_end_minute: number}[]} price_points 預測電價
@@ -173,7 +209,7 @@ function analyse_region() {
 function build_plan_subtitle(region_id, price_points) {
   const period_start = format_nem_label(interval_start_minute(price_points[0].interval_end_minute));
   const period_end = format_nem_label(price_points.at(-1).interval_end_minute);
-  return `${region_id}，預測期間 ${period_start} 至 ${period_end}（NEM 時間），共 ${price_points.length} 個 30 分鐘時段`;
+  return `${region_id}，預測期間 ${period_start} 至 ${period_end}（NEM 市場時間；台灣時間＝市場時間 − 2 小時），共 ${price_points.length} 個 30 分鐘時段`;
 }
 
 /**
@@ -313,7 +349,7 @@ function wire_threshold_inputs() {
   });
 }
 
-/** 綁定資料來源、區域、電池欄位與主題切換。 */
+/** 綁定資料來源、電池欄位與主題切換。 */
 function wire_source_and_battery_inputs() {
   element_by_id("refresh_button").addEventListener("click", load_from_dashboard);
   element_by_id("auto_refresh").addEventListener("change", (change_event) => {
@@ -322,10 +358,6 @@ function wire_source_and_battery_inputs() {
   });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && element_by_id("auto_refresh").checked) load_from_dashboard();
-  });
-  element_by_id("region_select").addEventListener("change", () => {
-    page_state.thresholds_adjusted = false;
-    if (page_state.region_forecasts) analyse_region();
   });
   element_by_id("minimum_spread_input").addEventListener("input", () => { if (page_state.region_forecasts) analyse_region(); });
   element_by_id("soc_input").addEventListener("input", update_dispatch_view);
@@ -346,6 +378,7 @@ async function start_page() {
   wire_threshold_inputs();
   wire_source_and_battery_inputs();
   set_auto_refresh(true);
+  setInterval(update_freshness_view, FRESHNESS_CHECK_INTERVAL_MILLISECONDS);
   load_from_dashboard();
 }
 
