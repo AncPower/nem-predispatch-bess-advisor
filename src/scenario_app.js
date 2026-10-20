@@ -1,13 +1,14 @@
 /**
- * 情境工具的進入點：收集輸入、模擬與評估、歷史校準、讀取事件清單，交給 scenario_render 顯示。
+ * 情境工具的進入點：收集輸入、模擬與評估、歷史校準、讀取事件清單與每日摘要，交給 scenario_render 顯示。
  */
 
-import { collect_excluded_dates } from "./event_days.js";
+import { fetch_daily_summary } from "./daily_summary.js";
+import { annotate_days_with_events, collect_event_dates, collect_excluded_dates, group_events_by_date } from "./event_days.js";
 import { calibrate_from_history, parse_history_csv, select_calibration_region } from "./history_calibration.js";
 import { simulate_price_paths, summarize_hourly_percentiles } from "./price_simulation.js";
 import { MARKET_PRESETS, NEWS_ADJUSTMENTS, build_field_definitions, clamp_to_field_limits, default_parameters } from "./scenario_presets.js";
 import {
-  build_field_html, draw_hourly_chart, draw_standard_chart, render_calibration_stats, render_kpis, render_special_dates_table, render_verdict,
+  build_field_html, draw_daily_revenue_chart, draw_hourly_chart, draw_standard_chart, render_calibration_stats, render_kpis, render_special_dates_table, render_verdict,
 } from "./scenario_render.js";
 import { fetch_special_dates } from "./special_dates.js";
 import { choose_best_standard, decide_verdict, evaluate_spread_strategy, summarize_first_day, sweep_spread_standards } from "./spread_strategy.js";
@@ -30,9 +31,11 @@ const page_state = {
   history_rows: null,
   history_name: "",
   special_dates: [],
+  daily_summary: null,
   render_timer: null,
   hourly_chart: null,
   standard_chart: null,
+  daily_chart: null,
 };
 
 /**
@@ -203,9 +206,37 @@ async function load_special_dates() {
     render_special_dates_table(element_by_id("events_body"), page_state.special_dates, "事件清單目前沒有任何事件。");
     const excluded_count = collect_excluded_dates(page_state.special_dates).size;
     set_status("events_status", `共 ${page_state.special_dates.length} 筆事件，其中 ${excluded_count} 個日期在校準時預設排除。`);
+    render_daily_revenue();
     if (page_state.history_rows) run_calibration();
   } catch (events_error) {
     set_status("events_status", `無法讀取事件清單：${events_error.message}`, true);
+  }
+}
+
+/** 依每日摘要與目前的事件清單畫每日收益圖；摘要還沒讀到時不畫。 */
+function render_daily_revenue() {
+  const daily_summary = page_state.daily_summary;
+  if (!daily_summary) return;
+  const annotated_days = annotate_days_with_events(daily_summary.days, group_events_by_date(page_state.special_dates));
+  const days_in_period = new Set(daily_summary.days.map((summary_day) => summary_day.date));
+  const event_day_count = [...collect_event_dates(page_state.special_dates)].filter((event_date) => days_in_period.has(event_date)).length;
+  const excluded_day_count = daily_summary.days.filter((summary_day) => summary_day.excluded).length;
+  const first_date = daily_summary.days[0].date;
+  const last_date = daily_summary.days.at(-1).date;
+  element_by_id("daily_subtitle").textContent =
+    `${daily_summary.region_id}，${first_date} 至 ${last_date}，共 ${daily_summary.days.length} 天；資料不完整而排除 ${excluded_day_count} 天（圖上留空），期間內事件日 ${event_day_count} 天。`;
+  page_state.daily_chart = draw_daily_revenue_chart(element_by_id("daily_chart"), page_state.daily_chart, annotated_days);
+}
+
+/** 讀取 `data/daily_summary.json` 並畫每日收益圖；失敗時只在這張圖顯示錯誤。 */
+async function load_daily_summary() {
+  set_status("daily_status", "正在讀取每日摘要…");
+  try {
+    page_state.daily_summary = await fetch_daily_summary();
+    set_status("daily_status", "");
+    render_daily_revenue();
+  } catch (summary_error) {
+    set_status("daily_status", `無法讀取每日摘要：${summary_error.message}`, true);
   }
 }
 
@@ -228,6 +259,7 @@ function wire_controls() {
     schedule_render();
   });
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render_results);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render_daily_revenue);
 }
 
 /** 綁定歷史電價上傳。 */
@@ -261,3 +293,4 @@ wire_controls();
 wire_calibration();
 render_results();
 load_special_dates();
+load_daily_summary();

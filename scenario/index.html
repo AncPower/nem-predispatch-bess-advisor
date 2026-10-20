@@ -62,6 +62,17 @@
 <div class="chart"><canvas id="standard_chart" role="img" aria-label="不同價差標準下的預估期間收益"></canvas></div>
 </section>
 <section class="card">
+<h3>每日收益與特殊事件</h3>
+<p class="sub" id="daily_subtitle">每日淨收益取自離線分析層的 data/daily_summary.json（共用設備參數，計入效率與損耗），事件取自下方的事件清單。</p>
+<div class="legend">
+<span><i class="sw" style="background:var(--charge)"></i>一般日</span>
+<span><i class="sw" style="background:var(--discharge)"></i>事件日</span>
+<span><i class="sw" style="background:var(--cut)"></i>含預設排除事件的日子</span>
+</div>
+<div class="status" id="daily_status" aria-live="polite"></div>
+<div class="chart"><canvas id="daily_chart" role="img" aria-label="每日淨收益與特殊事件標注"></canvas></div>
+</section>
+<section class="card">
 <h3>以歷史電價校準</h3>
 <p class="sub">上傳歷史電價 CSV（例如 AEMO 各區域每月的 PRICE_AND_DEMAND 檔，或任何含日期時間與電價兩欄的檔案）。工具會擬合每日價格型態、尖峰頻率與價差，取代市場預設值；檔案含多個區域時使用 NSW1。下方事件清單中標為「預設排除」的日期不會納入。</p>
 <div class="drop" id="calibration_drop" tabindex="0" role="button" aria-label="上傳歷史電價 CSV">拖曳或點選上傳歷史電價 CSV</div>
@@ -82,6 +93,7 @@
 <li>各市場預設值是依公開報導整理的示意價格型態，不是即時市場數據；正式使用前請以歷史電價校準。</li>
 <li>歷史電價：手動上傳。AEMO 網站的月檔不開放跨網域讀取，網頁無法直接下載。</li>
 <li>特殊事件：開頁時讀取 repo 內的 data/special_dates.csv，內容經 PR 審核後才會更新，不呼叫 GitHub API。</li>
+<li>每日收益：開頁時讀取 repo 內的 data/daily_summary.json，由離線分析層每月更新；資料不完整的日子不畫長條。</li>
 <li>每日電價由基準價、午間再生能源凹陷、傍晚尖峰、天氣波動與偶發尖峰組成，模擬 400 條路徑（固定亂數種子，同樣輸入得到同樣結果）。</li>
 <li>每天若電池為空，於當日最低價的連續四小時充電；之後出現的最高價連續四小時，若與充電價的價差達標即放電，否則持有，最多等待設定天數後強制放電。</li>
 <li>收益＝放電電量 ×（高價段均價 − 低價段均價）；來回效率固定 100%，不計電池損耗、輔助服務、容量收入、網路費與損失係數。</li>
