@@ -19,6 +19,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from analysis.arbitrage_plan import BatterySpecification
+from analysis.battery_configuration import BATTERY_CONFIGURATION_RELATIVE_PATH, read_battery_specification
 from analysis.daily_revenue import average_half_hour_prices, compute_daily_revenue, merge_interval_prices
 from analysis.external_factors import daily_battery_power, parse_battery_units, parse_gas_prices, read_csv_records
 from analysis.factor_dataset import FactorSources, build_factor_dataset, span_source_dates
@@ -30,11 +31,14 @@ from analysis.weight_solver import solve_factor_weights
 
 INPUT_DIRECTORY_VARIABLE: str = "NEM_INPUT_DIRECTORY"
 REGION_ID: str = "NSW1"
-REVENUE_BATTERY_SPECIFICATION = BatterySpecification(power_mw=5, capacity_mwh=20, marginal_loss_factor=1)
 REPOSITORY_ROOT: Path = Path(__file__).resolve().parents[1]
 GAS_PRICE_RELATIVE_PATH: str = "data/external/sttm_sydney_daily_price.csv"
 BATTERY_UNITS_RELATIVE_PATH: str = "data/external/nsw_battery_units.csv"
-EXTERNAL_INPUT_RELATIVE_PATHS: tuple[str, ...] = (GAS_PRICE_RELATIVE_PATH, BATTERY_UNITS_RELATIVE_PATH)
+EXTERNAL_INPUT_RELATIVE_PATHS: tuple[str, ...] = (
+    GAS_PRICE_RELATIVE_PATH,
+    BATTERY_UNITS_RELATIVE_PATH,
+    BATTERY_CONFIGURATION_RELATIVE_PATH,
+)
 OUTPUT_RELATIVE_PATH: str = "data/factor_weights.json"
 TRADING_PRICE_FILE_NAME: str = "trading_price.csv"
 REGION_SOLUTION_FILE_NAME: str = "p5min_region_solution.csv"
@@ -120,19 +124,22 @@ def iterate_records(file_paths: tuple[Path, ...], table_name: MmsTableName) -> I
     yield from itertools.chain.from_iterable(iterate_mms_file(file_path, table_name) for file_path in file_paths)
 
 
-def load_factor_sources(raw_input_files: RawInputFiles, repository_root: Path) -> FactorSources:
+def load_factor_sources(
+    raw_input_files: RawInputFiles, repository_root: Path, battery_specification: BatterySpecification
+) -> FactorSources:
     """讀入全部來源並算出每日收益與各因素。
 
     Args:
         raw_input_files: 原始檔清單。
         repository_root: repo 根目錄，用來找 `data/external/`。
+        battery_specification: 算每日收益用的電池規格（取自 `config/battery.json`）。
 
     Returns:
         組資料集用的四個來源。
     """
     price_records = iterate_records(raw_input_files.trading_price_files, TRADING_PRICE_TABLE)
     five_minute_prices = merge_interval_prices(price_records, REGION_ID)
-    daily_revenue = compute_daily_revenue(average_half_hour_prices(five_minute_prices), REVENUE_BATTERY_SPECIFICATION)
+    daily_revenue = compute_daily_revenue(average_half_hour_prices(five_minute_prices), battery_specification)
     pipeline_logger.info(
         "step=daily_revenue days=%d incomplete_days=%d",
         len(daily_revenue.revenue_by_date),
@@ -157,14 +164,15 @@ def build_document(input_directory: Path, repository_root: Path, generated_at: d
 
     Args:
         input_directory: 原始資料目錄。
-        repository_root: repo 根目錄。
+        repository_root: repo 根目錄，用來找 `data/external/` 與 `config/battery.json`。
         generated_at: 產生時間（帶時區）。
 
     Returns:
         JSON 文件內容。
     """
     raw_input_files = find_raw_input_files(input_directory)
-    factor_dataset = build_factor_dataset(load_factor_sources(raw_input_files, repository_root))
+    battery_specification = read_battery_specification(repository_root / BATTERY_CONFIGURATION_RELATIVE_PATH)
+    factor_dataset = build_factor_dataset(load_factor_sources(raw_input_files, repository_root, battery_specification))
     pipeline_logger.info(
         "step=factor_dataset days=%d excluded_days=%d",
         len(factor_dataset.trading_dates),
@@ -179,7 +187,7 @@ def build_document(input_directory: Path, repository_root: Path, generated_at: d
         weight_solution,
         compute_source_fingerprint(repository_root, EXTERNAL_INPUT_RELATIVE_PATHS),
         build_raw_manifest(raw_input_files.all_files(), input_directory),
-        ReportMetadata(generated_at, version(SOLVER_PACKAGE_NAME), REVENUE_BATTERY_SPECIFICATION),
+        ReportMetadata(generated_at, version(SOLVER_PACKAGE_NAME), battery_specification),
     )
 
 
