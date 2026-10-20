@@ -5,16 +5,20 @@ import { test } from "node:test";
 import { parse_daily_summary } from "../src/daily_summary.js";
 import { SPREAD_STANDARD_URL, fetch_spread_standard, parse_spread_standard } from "../src/shared_configuration.js";
 import {
-  MINIMUM_SAMPLE_DAYS, build_candidate_standards, review_spread_standards, select_period_days, summarize_break_even_spreads,
+  MINIMUM_SAMPLE_DAYS, build_candidate_standards, parse_trial_degradation, parse_trial_efficiency, parse_trial_standard, reprice_days,
+  review_spread_standards, select_period_days, summarize_break_even_spreads,
 } from "../src/spread_review.js";
 import { describe_spread_review, draw_spread_review_chart } from "../src/spread_review_render.js";
-import { break_even_spread } from "../src/window_selection.js";
+import { INTERVAL_HOURS } from "../src/nem_time.js";
+import { break_even_spread, segment_length_for } from "../src/window_selection.js";
 
 const SCENARIO_PAGE_FILE = new URL("../scenario/index.html", import.meta.url);
 const REPOSITORY_SUMMARY_FILE = new URL("../data/daily_summary.json", import.meta.url);
 const REPOSITORY_STANDARD_FILE = new URL("../config/spread_standard.json", import.meta.url);
+const REPOSITORY_BATTERY_FILE = new URL("../config/battery.json", import.meta.url);
+const REPRICE_TOLERANCE_AUD = 1;
 const REVIEW_ELEMENT_IDS = Object.freeze([
-  "review_start_date", "review_end_date", "review_event_view", "review_status", "review_title", "review_text", "review_kpis", "review_chart", "review_notes",
+  "review_start_date", "review_end_date", "review_event_view", "review_trial_standard", "review_trial_efficiency", "review_trial_degradation", "review_status", "review_title", "review_text", "review_kpis", "review_chart", "review_notes",
 ]);
 
 /** 一個循環（只含檢討用到的欄位）。 */
@@ -220,9 +224,91 @@ test("draw_spread_review_chart: 每個候選標準一點、標出目前標準與
     assert.deepEqual(retention_series.data, [{ x: 0, y: 1980 }, { x: 100, y: 1980 }]);
     assert.equal(empty_chart, null);
     assert.equal(destroy_count, 2);
+    const label_for = (chart_index, dataset_index) =>
+      created_charts[chart_index].chart_configuration.options.plugins.tooltip.callbacks.label({ datasetIndex: dataset_index, parsed: { y: 1800 } });
+    draw_spread_review_chart({}, null, review_spread_standards(build_example_days(), 50), true);
+    assert.match(label_for(0, 1), /^目前標準：/);
+    assert.match(label_for(1, 1), /^試算標準：/);
   } finally {
     Object.assign(globalThis, saved_globals);
   }
+});
+
+test("parse_trial_standard: 留空為 null，0 以上的數值照用，其餘報錯", () => {
+  assert.equal(parse_trial_standard(""), null);
+  assert.equal(parse_trial_standard("   "), null);
+  assert.equal(parse_trial_standard(undefined), null);
+  assert.equal(parse_trial_standard("0"), 0);
+  assert.equal(parse_trial_standard(" 42.5 "), 42.5);
+  assert.throws(() => parse_trial_standard("-1"), /0 以上的數值/);
+  assert.throws(() => parse_trial_standard("abc"), /0 以上的數值/);
+  assert.throws(() => parse_trial_standard("Infinity"), /0 以上的數值/);
+});
+
+test("parse_trial_efficiency／parse_trial_degradation: 效率以百分比輸入並轉成比例，損耗 0 以上，留空為 null", () => {
+  assert.equal(parse_trial_efficiency(""), null);
+  assert.equal(parse_trial_efficiency("85"), 0.85);
+  assert.equal(parse_trial_efficiency("100"), 1);
+  assert.throws(() => parse_trial_efficiency("0"), /大於 0 且不超過 100/);
+  assert.throws(() => parse_trial_efficiency("101"), /大於 0 且不超過 100/);
+  assert.equal(parse_trial_degradation(" "), null);
+  assert.equal(parse_trial_degradation("0"), 0);
+  assert.equal(parse_trial_degradation("12.5"), 12.5);
+  assert.throws(() => parse_trial_degradation("-0.1"), /0 以上/);
+});
+
+test("reprice_days: 沿用原本時段重算淨收益；不划算的循環不做，全部不做時當天沒有計畫", () => {
+  const day_records = [
+    planned_day("2026-07-01", 400, [20], 50),
+    planned_day("2026-07-02", 2600, [140, 60], 20),
+    excluded_day("2026-07-05"),
+  ];
+  const cost_settings = { energy_mwh: 20, round_trip_efficiency: 0.8, degradation_cost_aud_per_mwh: 10, marginal_loss_factor: 1 };
+
+  const repriced_days = reprice_days(day_records, cost_settings);
+
+  // 07-01：20 ×（0.8 × 70 − 50）− 20 × 0.8 × 10 = 120 − 160 < 0 → 當天不做
+  assert.equal(repriced_days[0].net_value_aud, 0);
+  assert.equal(repriced_days[0].best_spread_aud_per_mwh, null);
+  assert.deepEqual(repriced_days[0].cycles, []);
+  // 07-02：價差 140 → 20 ×（0.8 × 160 − 20）− 160 = 2000；價差 60 → 20 ×（0.8 × 80 − 20）− 160 = 720
+  assert.ok(Math.abs(repriced_days[1].net_value_aud - 2720) < 1e-9);
+  assert.equal(repriced_days[1].best_spread_aud_per_mwh, 60);
+  assert.equal(repriced_days[2], day_records[2], "資料不完整的日子原樣保留");
+  assert.equal(day_records[0].net_value_aud, 400, "不改動輸入");
+  assert.throws(() => reprice_days([{ ...planned_day("2026-07-01", 200, [30]), cycles: [{ spread_aud_per_mwh: 30 }] }], cost_settings), /charge_average_price_aud_per_mwh/);
+});
+
+test("reprice_days: 效率 100%、損耗 0 時還原每日淨收益", () => {
+  const repriced_days = reprice_days(build_example_days(), { energy_mwh: 10, round_trip_efficiency: 1, degradation_cost_aud_per_mwh: 0, marginal_loss_factor: 1 });
+
+  assert.equal(repriced_days[0].net_value_aud, 300, "10 MWh × 價差 30");
+  assert.equal(repriced_days[1].net_value_aud, 2000, "10 ×（140 ＋ 60）");
+  assert.equal(repriced_days[1].best_spread_aud_per_mwh, 60);
+});
+
+test("describe_spread_review: 試算設備參數時加註試算、列出設定檔原值與下限估計的限制", () => {
+  const configured_battery = { power_mw: 5, capacity_mwh: 20, round_trip_efficiency: 1, degradation_cost_aud_per_mwh: 0, marginal_loss_factor: 1 };
+  const review_description = describe_spread_review(review_spread_standards(build_example_days(), 50), build_context({ configured_battery }));
+
+  assert.match(review_description.title_text, /^試算・建議下調：目前標準 50 AUD\/MWh/);
+  const notes_text = review_description.note_lines.join("\n");
+  assert.match(notes_text, /試算設備參數：設定檔為來回效率 100\.0%、損耗 0\.00 AUD\/MWh/);
+  assert.match(notes_text, /不重新選窗，所以是新參數下的下限估計/);
+  assert.match(notes_text, /試算設備參數（來回效率 80\.0%/);
+});
+
+test("describe_spread_review: 試算時改用「試算標準」並註明未寫入設定、目前標準仍列出", () => {
+  const trial_description = describe_spread_review(review_spread_standards(build_example_days(), 50), build_context({ is_trial: true }));
+  const configured_description = describe_spread_review(review_spread_standards(build_example_days(), 50), build_context());
+
+  assert.match(trial_description.title_text, /^試算・建議下調：試算標準 50 AUD\/MWh/);
+  assert.match(trial_description.body_text, /試算值未寫入設定檔/);
+  assert.equal(trial_description.kpi_items[0].label, "試算標準");
+  assert.match(trial_description.kpi_items[0].detail, /未寫入設定；目前標準 50 AUD\/MWh/);
+  assert.match(trial_description.note_lines.join("\n"), /試算中：.*清空輸入欄即回到目前標準 50 AUD\/MWh/);
+  assert.match(configured_description.title_text, /^建議下調：目前標準 50 AUD\/MWh/);
+  assert.doesNotMatch(configured_description.note_lines.join("\n"), /試算中/);
 });
 
 test("fetch_spread_standard: 讀 config/spread_standard.json 並驗證", async () => {
@@ -255,6 +341,21 @@ test("repo 的每日摘要與價差標準可以直接完成檢討與成本說明
   assert.ok(["keep", "lower"].includes(spread_review.status), spread_review.status);
   assert.equal(spread_review.sweep_points[0].net_value_aud, spread_review.maximum_value_aud);
   assert.ok(cost_summary.cycle_count > 0);
+});
+
+test("reprice_days: 以 repo 的 config/battery.json 重算，與 data/daily_summary.json 的每日淨收益一致（容差 1 AUD，均價可能已四捨五入）", () => {
+  const daily_summary = parse_daily_summary(JSON.parse(readFileSync(REPOSITORY_SUMMARY_FILE, "utf8")));
+  const battery_configuration = JSON.parse(readFileSync(REPOSITORY_BATTERY_FILE, "utf8"));
+  const energy_mwh = Math.min(battery_configuration.capacity_mwh, battery_configuration.power_mw * segment_length_for(battery_configuration) * INTERVAL_HOURS);
+
+  const repriced_days = reprice_days(daily_summary.days, { ...battery_configuration, energy_mwh });
+
+  repriced_days.forEach((repriced_day, day_index) => {
+    const original_day = daily_summary.days[day_index];
+    if (original_day.excluded) return;
+    assert.ok(Math.abs(repriced_day.net_value_aud - original_day.net_value_aud) < REPRICE_TOLERANCE_AUD, `${original_day.date}：${repriced_day.net_value_aud} ≠ ${original_day.net_value_aud}`);
+    assert.equal(repriced_day.best_spread_aud_per_mwh, original_day.best_spread_aud_per_mwh, original_day.date);
+  });
 });
 
 test("scenario/index.html: 價差標準檢討用到的元素都存在", () => {
