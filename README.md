@@ -114,15 +114,18 @@
 | 求解 | HiGHS 最小絕對誤差迴歸，權重非負、加總為 1，另外輸出 scale 與截距 |
 | 目前擬合品質 | 2024-07-01 至 2026-08-31，共 789 天；R² 約 0.46，平均絕對誤差約 A$2,721／天（收益中位數約 A$2,651／天） |
 
-擬合品質有限，所以階段 1 只把權重當參考，不作為收益預估的依據；接入預估是階段 2 的工作（#12）。階段 1 預計新增 `data/daily_summary.json` 的輸出，給情境評估頁使用。
+擬合品質有限，所以階段 1 只把權重當參考，不作為收益預估的依據；接入預估是階段 2 的工作（#12）。
 
-模型、欄位與每個來源的細節在 [`docs/data_sources.md`](docs/data_sources.md)。原始資料約 1.9 GB，不在 repo 裡；重新產生要在 repo 根目錄執行：
+分析層另外輸出 `data/daily_summary.json`（#30）：2024-07-01 起每個交易日的最佳計畫，含各循環的充放電開始時間、均價、價差與淨收益，以及被排除的日子與原因。計畫與權重用同一套選窗規則與 `config/battery.json`，計入效率與損耗。情境評估頁的價差標準檢討（#32）、參考期間推估（#33）與事件標注（#31）以它為資料來源。
+
+模型、欄位與每個來源的細節在 [`docs/data_sources.md`](docs/data_sources.md)。原始資料約 1.9 GB，不在 repo 裡；重新產生要在 repo 根目錄執行（兩份 JSON 每月一起更新）：
 
 ```bash
 NEM_INPUT_DIRECTORY=<原始資料目錄> uv run python -m analysis.build_factor_weights
+NEM_INPUT_DIRECTORY=<原始資料目錄> uv run python -m analysis.build_daily_summary
 ```
 
-改了 `analysis/` 的程式、`data/external/` 或 `config/battery.json` 卻沒重新產生 JSON，CI 的 `analysis` job 會失敗。
+改了 `analysis/` 的程式或 `config/battery.json` 卻沒重新產生兩份 JSON（權重另外檢查 `data/external/`），CI 的 `analysis` job 會失敗。指紋涵蓋 `analysis/` 第一層的每個 `.py`，所以只改其中一個模組，兩份 JSON 也都要重跑。
 
 ## 本機執行
 

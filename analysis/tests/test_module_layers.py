@@ -22,6 +22,8 @@ MODULE_LAYERS: dict[str, int] = {
     "factor_dataset": 3,
     "factor_weights_report": 4,
     "build_factor_weights": 5,
+    "daily_summary_report": 5,
+    "build_daily_summary": 6,
 }
 
 

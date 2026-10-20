@@ -2,16 +2,19 @@
 
 - 30 分鐘均價：結束於 T−25 到 T 的六筆 5 分鐘 RRP 的算術平均；不足六筆的 30 分鐘時段不算。
 - 每個交易日各自從空電池開始，計畫不跨過午夜；一天不足 48 段就不算收益，列為不完整。
+- `compute_daily_plans` 保留每天的完整計畫，給 `data/daily_summary.json`（#30）用；
+  `compute_daily_revenue` 只取總收益，給因素權重用，兩者結果一致。
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from analysis.arbitrage_plan import BatterySpecification, select_best_plan
+from analysis.arbitrage_plan import ArbitragePlan, BatterySpecification, select_best_plan
 from analysis.mms_csv import MmsRecord
 from analysis.nem_day import (
+    FIVE_MINUTE_INTERVAL,
     FIVE_MINUTE_INTERVALS_PER_HALF_HOUR,
     HALF_HOUR_INTERVAL,
     HALF_HOURS_PER_DAY,
@@ -32,6 +35,14 @@ class DailyRevenueResult:
     """每日收益與因資料不完整而沒有算的交易日。"""
 
     revenue_by_date: dict[date, float]
+    incomplete_dates: tuple[date, ...]
+
+
+@dataclass(frozen=True)
+class DailyPlanResult:
+    """每個完整交易日的最佳計畫，與因資料不完整而沒有算的交易日。"""
+
+    plans_by_date: dict[date, ArbitragePlan]
     incomplete_dates: tuple[date, ...]
 
 
@@ -94,6 +105,21 @@ def average_half_hour_prices(five_minute_prices: Mapping[datetime, float]) -> di
     }
 
 
+def count_five_minute_prices_by_trading_date(five_minute_prices: Mapping[datetime, float]) -> dict[date, int]:
+    """每個交易日有幾筆 5 分鐘電價，用來說明不完整日缺了多少（完整為 288 筆）。
+
+    Args:
+        five_minute_prices: 5 分鐘時段結束時間 → 電價。
+
+    Returns:
+        依日期排序的「交易日 → 筆數」，只含有資料的交易日。
+    """
+    price_counts = Counter(
+        trading_date_for(interval_end, FIVE_MINUTE_INTERVAL) for interval_end in five_minute_prices
+    )
+    return dict(sorted(price_counts.items()))
+
+
 def group_prices_by_trading_date(half_hour_prices: Mapping[datetime, float]) -> dict[date, list[float]]:
     """30 分鐘電價依交易日分組，每組依時間排序。
 
@@ -109,6 +135,28 @@ def group_prices_by_trading_date(half_hour_prices: Mapping[datetime, float]) -> 
     return dict(grouped_prices)
 
 
+def compute_daily_plans(
+    half_hour_prices: Mapping[datetime, float], battery_specification: BatterySpecification
+) -> DailyPlanResult:
+    """每個完整交易日的最佳計畫（含各循環的時段、均價與淨收益）。
+
+    Args:
+        half_hour_prices: 30 分鐘時段結束時間 → 均價。
+        battery_specification: 電池規格。
+
+    Returns:
+        每日最佳計畫，以及有資料但不足 48 段、沒有算的交易日。完全沒有資料的日子兩邊都不會出現。
+    """
+    prices_by_date = group_prices_by_trading_date(half_hour_prices)
+    plans_by_date = {
+        trading_date: select_best_plan(price_values, battery_specification)
+        for trading_date, price_values in sorted(prices_by_date.items())
+        if len(price_values) == HALF_HOURS_PER_DAY
+    }
+    incomplete_dates = tuple(sorted(set(prices_by_date) - set(plans_by_date)))
+    return DailyPlanResult(plans_by_date, incomplete_dates)
+
+
 def compute_daily_revenue(
     half_hour_prices: Mapping[datetime, float], battery_specification: BatterySpecification
 ) -> DailyRevenueResult:
@@ -121,11 +169,8 @@ def compute_daily_revenue(
     Returns:
         每日收益（AUD），以及有資料但不足 48 段、沒有算收益的交易日。完全沒有資料的日子兩邊都不會出現。
     """
-    prices_by_date = group_prices_by_trading_date(half_hour_prices)
+    daily_plans = compute_daily_plans(half_hour_prices, battery_specification)
     revenue_by_date = {
-        trading_date: select_best_plan(price_values, battery_specification).total_value
-        for trading_date, price_values in sorted(prices_by_date.items())
-        if len(price_values) == HALF_HOURS_PER_DAY
+        trading_date: daily_plan.total_value for trading_date, daily_plan in daily_plans.plans_by_date.items()
     }
-    incomplete_dates = tuple(sorted(set(prices_by_date) - set(revenue_by_date)))
-    return DailyRevenueResult(revenue_by_date, incomplete_dates)
+    return DailyRevenueResult(revenue_by_date, daily_plans.incomplete_dates)

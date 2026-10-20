@@ -7,7 +7,9 @@ import pytest
 from analysis.arbitrage_plan import BatterySpecification
 from analysis.daily_revenue import (
     average_half_hour_prices,
+    compute_daily_plans,
     compute_daily_revenue,
+    count_five_minute_prices_by_trading_date,
     merge_interval_prices,
 )
 from analysis.mms_csv import MmsRecord
@@ -134,3 +136,35 @@ def test_compute_daily_revenue_empty_input_gives_empty_result() -> None:
 
     assert daily_result.revenue_by_date == {}
     assert daily_result.incomplete_dates == ()
+
+
+def test_compute_daily_plans_keeps_full_plan_matching_daily_revenue() -> None:
+    """compute_daily_plans 保留完整計畫（循環的時段與均價），總收益與 compute_daily_revenue 相同。"""
+    price_values = [0.0] * 8 + [100.0] * 8 + [50.0] * (HALF_HOURS_PER_DAY - 16)
+    half_hour_prices = build_half_hour_day(FIRST_DAY_START, price_values)
+
+    daily_plans = compute_daily_plans(half_hour_prices, FOUR_HOUR_BATTERY)
+
+    planned_cycle = daily_plans.plans_by_date[date(2025, 4, 10)].cycles[0]
+    assert (planned_cycle.charge_start_index, planned_cycle.discharge_start_index) == (0, 8)
+    assert (planned_cycle.charge_average_price, planned_cycle.discharge_average_price) == (0.0, 100.0)
+    assert {
+        trading_date: daily_plan.total_value for trading_date, daily_plan in daily_plans.plans_by_date.items()
+    } == compute_daily_revenue(half_hour_prices, FOUR_HOUR_BATTERY).revenue_by_date
+
+
+def test_compute_daily_plans_reports_incomplete_day() -> None:
+    """一天不足 48 段：沒有計畫，列為不完整，與 compute_daily_revenue 相同。"""
+    half_hour_prices = build_half_hour_day(FIRST_DAY_START, [10.0] * (HALF_HOURS_PER_DAY - 1))
+
+    daily_plans = compute_daily_plans(half_hour_prices, FOUR_HOUR_BATTERY)
+
+    assert daily_plans.plans_by_date == {}
+    assert daily_plans.incomplete_dates == (date(2025, 4, 10),)
+
+
+def test_count_five_minute_prices_assigns_midnight_end_to_previous_day() -> None:
+    """結束於 00:05 到隔天 00:00 的 288 筆屬於同一個交易日；隔天 00:05 那筆算下一天。"""
+    five_minute_prices = {FIRST_DAY_START + step_index * FIVE_MINUTE_INTERVAL: 1.0 for step_index in range(1, 290)}
+
+    assert count_five_minute_prices_by_trading_date(five_minute_prices) == {date(2025, 4, 10): 288, date(2025, 4, 11): 1}
