@@ -19,6 +19,7 @@ const MODULE_LAYERS = Object.freeze({
   "dashboard_source.js": 2,
   "upload_parser.js": 2,
   "special_dates.js": 2,
+  "daily_summary.js": 2,
   "shared_configuration.js": 2,
   "page_render.js": 3,
   "scenario_render.js": 3,

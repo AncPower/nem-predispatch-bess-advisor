@@ -1,5 +1,5 @@
 /**
- * 情境工具的畫面：欄位、判斷燈號、KPI、兩張圖、校準統計、事件表。只負責顯示，不做計算。
+ * 情境工具的畫面：欄位、判斷燈號、KPI、三張圖、校準統計、事件表。只負責顯示，不做計算。
  *
  * 圖表使用全域的 Chart.js（由 scenario/index.html 從 cdnjs 載入）。事件清單是公開資料，
  * 內容一律以 textContent 寫入；來源網址已由 `special_dates.js` 限定為 http 或 https。
@@ -18,6 +18,8 @@ const HOUR_LABELS = Object.freeze(Array.from({ length: 24 }, (_unused, hour_valu
 const PERCENTILE_NAMES = Object.freeze(["P10", "P90", "中位數"]);
 const SWEEP_SERIES_NAMES = Object.freeze(["期望收益", "建議標準", "目前標準"]);
 const EVENT_COLUMN_COUNT = 8;
+const DAILY_MARKER_COLOR_TOKENS = Object.freeze({ none: "--charge", event: "--discharge", excluded_event: "--cut" });
+const DAILY_CURRENCY_CODE = "AUD";
 
 /**
  * 讀取 CSS 色彩變數，讓圖表跟著淺色或深色主題。
@@ -204,6 +206,60 @@ export function draw_standard_chart(chart_canvas, previous_chart, sweep_points, 
   };
   previous_chart?.destroy();
   return new window.Chart(chart_canvas, chart_configuration);
+}
+
+/**
+ * 畫每日淨收益長條圖並標出事件日：一般日、事件日、含預設排除事件的日子各用一種顏色；
+ * 資料不完整而排除的日子沒有長條。提示框列出當天的事件類別與名稱。
+ *
+ * @param {HTMLCanvasElement} chart_canvas 畫布
+ * @param {object | null} previous_chart 上一次的圖表
+ * @param {ReturnType<typeof import("./event_days.js").annotate_days_with_events>} annotated_days 標注後的每日資料
+ * @returns {object} 新的 Chart.js 圖表
+ */
+export function draw_daily_revenue_chart(chart_canvas, previous_chart, annotated_days) {
+  const tick_color = read_css_token("--ink-3");
+  const marker_colors = Object.fromEntries(Object.entries(DAILY_MARKER_COLOR_TOKENS).map(([marker_kind, token_name]) => [marker_kind, read_css_token(token_name)]));
+  const chart_configuration = {
+    type: "bar",
+    data: {
+      labels: annotated_days.map((annotated_day) => annotated_day.date),
+      datasets: [{
+        data: annotated_days.map((annotated_day) => annotated_day.net_value_aud),
+        backgroundColor: annotated_days.map((annotated_day) => marker_colors[annotated_day.marker_kind]),
+        barPercentage: 1, categoryPercentage: 1,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (tooltip_item) => `淨收益：${format_money(tooltip_item.parsed.y, DAILY_CURRENCY_CODE)}`,
+            afterBody: (tooltip_items) => build_event_tooltip_lines(annotated_days[tooltip_items[0].dataIndex]),
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: tick_color, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+        y: { title: { display: true, text: `每日淨收益（${DAILY_CURRENCY_CODE}）`, color: tick_color }, grid: { color: read_css_token("--rule") }, ticks: { color: tick_color, callback: (tick_value) => format_number(tick_value) } },
+      },
+    },
+  };
+  previous_chart?.destroy();
+  return new window.Chart(chart_canvas, chart_configuration);
+}
+
+/**
+ * 提示框裡當天事件的文字，一筆一行；預設排除的事件加註。
+ *
+ * @param {{day_events: readonly import("./special_dates.js").SpecialDate[]}} annotated_day 標注後的一天
+ * @returns {string[]} 文字行，沒有事件時為空陣列
+ */
+export function build_event_tooltip_lines(annotated_day) {
+  return annotated_day.day_events.map((special_date) =>
+    `${EVENT_CATEGORY_LABELS[special_date.category]}｜${special_date.event_name}${special_date.exclude_by_default ? "（預設排除）" : ""}`);
 }
 
 /**
