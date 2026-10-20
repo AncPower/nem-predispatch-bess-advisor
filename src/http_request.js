@@ -1,5 +1,5 @@
 /**
- * 呼叫外部 JSON API 的共用流程：逾時、只對暫時性錯誤退避重試、把 HTTP 狀態轉成可辨識的錯誤。
+ * 讀取外部 JSON API 或靜態檔的共用流程：逾時、只對暫時性錯誤退避重試、把 HTTP 狀態轉成可辨識的錯誤。
  */
 
 const DEFAULT_TIMEOUT_MILLISECONDS = 15_000;
@@ -41,12 +41,38 @@ export class HttpStatusError extends Error {
  * @throws {TransientFetchError | HttpStatusError | Error} 重試用盡或遇到不可重試的錯誤
  */
 export async function fetch_json_with_retry(request_url, request_init, request_options) {
+  return fetch_with_retry(request_url, request_init, request_options, (http_response) => http_response.json());
+}
+
+/**
+ * 送出請求並取回文字內容（例如 CSV 檔），重試規則與 `fetch_json_with_retry` 相同。
+ *
+ * @param {string} request_url 網址
+ * @param {RequestInit} request_init fetch 的設定（不含 signal）
+ * @param {RequestOptions} request_options 來源名稱與可替換的實作
+ * @returns {Promise<string>} 回應內文
+ * @throws {TransientFetchError | HttpStatusError | Error} 重試用盡或遇到不可重試的錯誤
+ */
+export async function fetch_text_with_retry(request_url, request_init, request_options) {
+  return fetch_with_retry(request_url, request_init, request_options, (http_response) => http_response.text());
+}
+
+/**
+ * 重試迴圈：只有 `TransientFetchError` 會重試。
+ *
+ * @param {string} request_url 網址
+ * @param {RequestInit} request_init fetch 設定
+ * @param {RequestOptions} request_options 來源名稱與可替換的實作
+ * @param {(http_response: Response) => Promise<unknown>} read_body 讀取成功回應的內文
+ * @returns {Promise<unknown>} 內文
+ */
+async function fetch_with_retry(request_url, request_init, request_options, read_body) {
   const fetch_function = request_options.fetch_function ?? globalThis.fetch.bind(globalThis);
   const sleep_function = request_options.sleep_function ?? wait_milliseconds;
   const timeout_milliseconds = request_options.timeout_milliseconds ?? DEFAULT_TIMEOUT_MILLISECONDS;
   for (let attempt_number = 1; ; attempt_number++) {
     try {
-      return await request_json_once(request_url, request_init, fetch_function, timeout_milliseconds, request_options.source_label);
+      return await request_once(request_url, request_init, { fetch_function, timeout_milliseconds, source_label: request_options.source_label, read_body });
     } catch (request_error) {
       const is_last_attempt = attempt_number >= MAXIMUM_ATTEMPT_COUNT;
       if (!(request_error instanceof TransientFetchError) || is_last_attempt) throw request_error;
@@ -60,17 +86,16 @@ export async function fetch_json_with_retry(request_url, request_init, request_o
  *
  * @param {string} request_url 網址
  * @param {RequestInit} request_init fetch 設定
- * @param {typeof fetch} fetch_function fetch 實作
- * @param {number} timeout_milliseconds 逾時
- * @param {string} source_label 來源名稱
- * @returns {Promise<unknown>} 原始 JSON
+ * @param {{fetch_function: typeof fetch, timeout_milliseconds: number, source_label: string, read_body: (http_response: Response) => Promise<unknown>}} request_settings fetch 實作、逾時、來源名稱與內文讀法
+ * @returns {Promise<unknown>} 內文
  */
-async function request_json_once(request_url, request_init, fetch_function, timeout_milliseconds, source_label) {
+async function request_once(request_url, request_init, request_settings) {
   const abort_controller = new AbortController();
-  const timeout_handle = setTimeout(() => abort_controller.abort(), timeout_milliseconds);
+  const timeout_handle = setTimeout(() => abort_controller.abort(), request_settings.timeout_milliseconds);
+  const source_label = request_settings.source_label;
   let http_response;
   try {
-    http_response = await fetch_function(request_url, { ...request_init, signal: abort_controller.signal });
+    http_response = await request_settings.fetch_function(request_url, { ...request_init, signal: abort_controller.signal });
   } catch (network_error) {
     throw new TransientFetchError(`連線 ${source_label} 失敗：${network_error.message}`, { cause: network_error });
   } finally {
@@ -80,7 +105,7 @@ async function request_json_once(request_url, request_init, fetch_function, time
     throw new TransientFetchError(`${source_label} 回應 HTTP ${http_response.status}`);
   }
   if (!http_response.ok) throw new HttpStatusError(`${source_label} 回應 HTTP ${http_response.status}`, http_response.status);
-  return http_response.json();
+  return request_settings.read_body(http_response);
 }
 
 /**
