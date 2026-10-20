@@ -88,3 +88,38 @@ test("page_copy: README 不再寫預調度頁可選五個區域（#29）", () =>
   assert.doesNotMatch(shared_section, /預調度頁可選五個區域/);
   assert.doesNotMatch(README_TEXT, /自訂價格試算保留，移到主結論下方/);
 });
+
+test("page_copy: 預調度頁改讀價差標準，沒有「每循環最低價差」輸入欄（#28）", () => {
+  assert.doesNotMatch(PREDISPATCH_PAGE_TEXT, /id="minimum_spread_input"/);
+  assert.doesNotMatch(PREDISPATCH_APP_TEXT, /minimum_spread_input/);
+  assert.match(PREDISPATCH_APP_TEXT, /fetch_spread_standard\(\)/);
+  assert.match(PREDISPATCH_APP_TEXT, /decide_plan_action\(/);
+});
+
+test("page_copy: 建議計畫卡片有結論、價差標準說明、收益包含與不包含、情境評估頁連結（#28）", () => {
+  const plan_section = read_section("plan_card");
+
+  assert.match(plan_section, /id="plan_verdict"/);
+  assert.match(plan_section, /id="spread_standard_note"/);
+  assert.match(plan_section, /預調度是 AEMO 依目前報價算出的預測價/);
+  assert.match(plan_section, /收益包含：/);
+  assert.match(plan_section, /不包含：FCAS 輔助服務、網路費、合約收入/);
+  assert.match(plan_section, /<a href="scenario\/">/);
+  assert.match(plan_section, /id="plan_freshness"/);
+});
+
+test("page_copy: 設定檔文字以 textContent 寫入，不用 innerHTML（#28）", () => {
+  const note_function = PREDISPATCH_APP_TEXT.slice(PREDISPATCH_APP_TEXT.indexOf("function show_spread_standard"), PREDISPATCH_APP_TEXT.indexOf("function update_wait_streak"));
+
+  assert.match(note_function, /\.textContent\s*=/);
+  assert.doesNotMatch(note_function, /innerHTML/);
+});
+
+test("page_copy: README 的預調度頁不再寫「每循環最低價差」或尚未讀取價差標準（#28）", () => {
+  const predispatch_section = README_TEXT.slice(README_TEXT.indexOf("## 兩頁共用的基礎"), README_TEXT.indexOf("## 情境評估頁"));
+
+  assert.doesNotMatch(predispatch_section, /每循環最低價差/);
+  assert.doesNotMatch(predispatch_section, /預調度頁尚未讀取/);
+  assert.match(predispatch_section, /執行/);
+  assert.match(predispatch_section, /等待/);
+});
