@@ -24,6 +24,7 @@ const RETENTION_PERCENT_TEXT = `${RETENTION_TARGET * 100}%`;
  * @property {string} battery_error 設備參數的讀取錯誤，沒有錯誤為空字串
  * @property {ReturnType<typeof import("./spread_review.js").summarize_break_even_spreads>} cost_summary 損益兩平價差摘要
  * @property {boolean} [is_trial] 檢討用的是試算標準（輸入欄），不是設定檔的目前標準
+ * @property {import("./shared_configuration.js").BatteryConfiguration | null} [configured_battery] 試算設備參數時，設定檔原本的設備參數；沒有試算時為 null
  */
 
 /**
@@ -43,10 +44,11 @@ const RETENTION_PERCENT_TEXT = `${RETENTION_TARGET * 100}%`;
  */
 export function describe_spread_review(spread_review, review_context) {
   const is_trial = review_context.is_trial === true;
+  const is_any_trial = is_trial || Boolean(review_context.configured_battery);
   const standard_label = standard_label_for(is_trial);
   const current_text = `${format_standard(spread_review.current_standard)} ${PRICE_UNIT}`;
   const configured_text = `${format_standard(review_context.spread_standard.spread_standard_aud_per_mwh)} ${PRICE_UNIT}`;
-  const verdict_copy = build_verdict_copy(spread_review, `${standard_label} ${current_text}`, is_trial);
+  const verdict_copy = build_verdict_copy(spread_review, `${standard_label} ${current_text}`, is_trial, is_any_trial);
   const kpi_items = [{
     label: standard_label,
     value: current_text,
@@ -160,10 +162,11 @@ export function draw_spread_review_chart(chart_canvas, previous_chart, spread_re
  *
  * @param {import("./spread_review.js").SpreadReview} spread_review 檢討結果
  * @param {string} standard_text 標準名稱與數值，例如「目前標準 50 AUD/MWh」
- * @param {boolean} is_trial 是否為試算
+ * @param {boolean} is_trial 標準是否為試算
+ * @param {boolean} is_any_trial 標準或設備參數是否有任何一項是試算
  * @returns {{title_text: string, body_text: string}} 文字
  */
-function build_verdict_copy(spread_review, standard_text, is_trial) {
+function build_verdict_copy(spread_review, standard_text, is_trial, is_any_trial) {
   if (spread_review.status === "no_data") {
     return { title_text: "選定期間沒有可用的日子，不提供調整建議", body_text: "請調整期間或事件檢視；資料不完整而排除的日子不納入檢討。" };
   }
@@ -175,8 +178,8 @@ function build_verdict_copy(spread_review, standard_text, is_trial) {
   }
   const outcome = spread_review.current_outcome;
   const highest_text = `${format_standard(spread_review.highest_retained_standard)} ${PRICE_UNIT}`;
-  const caveat_text = `這是歷史最佳計畫（事後電價）的保留率，不代表實際營運收益最高。${is_trial ? "試算值未寫入設定檔。" : ""}`;
-  const prefix_text = is_trial ? "試算・" : "";
+  const caveat_text = `這是歷史最佳計畫（事後電價）的保留率，不代表實際營運收益最高。${is_any_trial ? "試算值未寫入設定檔。" : ""}`;
+  const prefix_text = is_any_trial ? "試算・" : "";
   if (spread_review.status === "keep") {
     return {
       title_text: `${prefix_text}維持：${standard_text} 保留 ${format_percent(outcome.retention_ratio)} 的歷史可得收益`,
@@ -214,6 +217,7 @@ function build_note_lines(spread_review, review_context, configured_text) {
     ...(review_context.is_trial
       ? [`試算中：結論、指標與圖上標記改用試算標準，清空輸入欄即回到目前標準 ${configured_text}；試算值不會寫入設定檔。`]
       : []),
+    ...(review_context.configured_battery ? [build_cost_trial_line(review_context)] : []),
     `目前標準 ${configured_text} 取自 config/spread_standard.json：${spread_standard.effective_date} 生效，檢討人 ${spread_standard.reviewer_name}。頁面不會修改這個檔；要調整請開 PR 並附上這裡的檢討結果。`,
   ];
 }
@@ -231,7 +235,20 @@ function build_cost_line(review_context) {
   const battery_configuration = review_context.battery_configuration;
   const parameter_text = `來回效率 ${format_number(battery_configuration.round_trip_efficiency * 100, 1)}%、損耗 ${format_number(battery_configuration.degradation_cost_aud_per_mwh, SPREAD_DECIMALS)} ${PRICE_UNIT}、MLF ${format_number(battery_configuration.marginal_loss_factor, 3)}`;
   const range_text = `中位數 ${format_number(cost_summary.median, SPREAD_DECIMALS)}，範圍 ${format_number(cost_summary.minimum, SPREAD_DECIMALS)} 至 ${format_number(cost_summary.maximum, SPREAD_DECIMALS)} ${PRICE_UNIT}`;
-  return `損益兩平價差＝充電均價 ×（1 ÷ 來回效率 − 1）＋ 損耗成本 ÷ MLF。目前設備參數（${parameter_text}）下，${cost_summary.cycle_count} 個循環的損益兩平價差${range_text}；價差低於這個值，扣除成本後就沒有收益。這是成本說明，不是門檻。`;
+  const parameter_label = review_context.configured_battery ? "試算設備參數" : "目前設備參數";
+  return `損益兩平價差＝充電均價 ×（1 ÷ 來回效率 − 1）＋ 損耗成本 ÷ MLF。${parameter_label}（${parameter_text}）下，${cost_summary.cycle_count} 個循環的損益兩平價差${range_text}；價差低於這個值，扣除成本後就沒有收益。這是成本說明，不是門檻。`;
+}
+
+/**
+ * 試算設備參數的說明：列出設定檔原值，並說明沿用原本時段重算的限制。
+ *
+ * @param {ReviewContext} review_context 設備參數（試算後）與設定檔原值
+ * @returns {string} 文字
+ */
+function build_cost_trial_line(review_context) {
+  const configured_battery = review_context.configured_battery;
+  const configured_text = `來回效率 ${format_number(configured_battery.round_trip_efficiency * 100, 1)}%、損耗 ${format_number(configured_battery.degradation_cost_aud_per_mwh, SPREAD_DECIMALS)} ${PRICE_UNIT}`;
+  return `試算設備參數：設定檔為${configured_text}。淨收益沿用每日摘要原本的充放電時段重算、不重新選窗，所以是新參數下的下限估計；淨收益不為正的循環不做，原本沒有計畫的日子不會因新參數而出現。清空輸入欄即回到設定值；試算值不會寫入 config/battery.json。`;
 }
 
 /**

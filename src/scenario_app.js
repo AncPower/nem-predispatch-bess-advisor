@@ -1,6 +1,7 @@
 /**
  * 情境工具的進入點：收集輸入、模擬與評估、歷史校準、讀取事件清單與每日摘要，交給 scenario_render 顯示；
- * 價差標準檢討（#32）讀共用設定，計算交給 spread_review、顯示交給 spread_review_render。
+ * 價差標準檢討（#32）讀共用設定，計算交給 spread_review、顯示交給 spread_review_render；
+ * 試算標準、效率與損耗只在畫面上，不寫入設定檔。
  */
 
 import { fetch_daily_summary } from "./daily_summary.js";
@@ -9,16 +10,20 @@ import {
 } from "./event_days.js";
 import { calibrate_from_history, parse_history_csv, select_calibration_region } from "./history_calibration.js";
 import { simulate_price_paths, summarize_hourly_percentiles } from "./price_simulation.js";
+import { INTERVAL_HOURS } from "./nem_time.js";
+import { format_number } from "./number_format.js";
 import { MARKET_PRESETS, NEWS_ADJUSTMENTS, build_field_definitions, clamp_to_field_limits, default_parameters } from "./scenario_presets.js";
 import {
   build_field_html, draw_daily_revenue_chart, draw_hourly_chart, draw_standard_chart, render_calibration_stats, render_kpis, render_special_dates_table, render_verdict,
 } from "./scenario_render.js";
 import { fetch_battery_configuration, fetch_spread_standard } from "./shared_configuration.js";
 import { fetch_special_dates } from "./special_dates.js";
-import { review_spread_standards, select_period_days, summarize_break_even_spreads } from "./spread_review.js";
+import {
+  parse_trial_degradation, parse_trial_efficiency, parse_trial_standard, reprice_days, review_spread_standards, select_period_days, summarize_break_even_spreads,
+} from "./spread_review.js";
 import { describe_spread_review, draw_spread_review_chart, render_spread_review } from "./spread_review_render.js";
 import { choose_best_standard, decide_verdict, evaluate_spread_strategy, summarize_first_day, sweep_spread_standards } from "./spread_strategy.js";
-import { break_even_spread } from "./window_selection.js";
+import { break_even_spread, segment_length_for } from "./window_selection.js";
 
 const CALIBRATED_PRESET_KEY = "hist";
 const RENDER_DELAY_MILLISECONDS = 120;
@@ -27,6 +32,7 @@ const CHART_DAY_LIMIT = 7;
 const LOG_DISPLAY_COUNT = 4;
 const LARGE_UNIT_THRESHOLD = 1000;
 const LARGE_UNIT_ROUNDING = 50;
+const REVIEW_INPUT_IDS = Object.freeze(["review_trial_standard", "review_trial_efficiency", "review_trial_degradation"]);
 
 const element_by_id = (element_id) => document.getElementById(element_id);
 
@@ -269,7 +275,7 @@ function initialize_review_period() {
   }
 }
 
-/** 依期間、事件檢視與目前標準重算並更新價差標準檢討；每日摘要或價差標準還沒讀到時不畫。 */
+/** 依期間、事件檢視與目前（或試算）標準重算並更新價差標準檢討；每日摘要或價差標準還沒讀到時不畫。 */
 function render_spread_review_section() {
   const { daily_summary, spread_standard } = page_state;
   if (!daily_summary || !spread_standard) return;
@@ -284,25 +290,52 @@ function render_spread_review_section() {
     const period_days = select_period_days(daily_summary.days, start_date, end_date);
     const view_days = filter_days_by_event_view(period_days, collect_event_dates(page_state.special_dates), view_key);
     const kept_dates = new Set(view_days.map((summary_day) => summary_day.date));
-    const battery_configuration = page_state.battery_configuration;
-    const spread_review = review_spread_standards(view_days, spread_standard.spread_standard_aud_per_mwh);
+    const trial_standard = parse_trial_standard(element_by_id("review_trial_standard").value);
+    const is_trial = trial_standard !== null;
+    const { battery_configuration, configured_battery, review_days } = apply_cost_trial(view_days);
+    const spread_review = review_spread_standards(review_days, is_trial ? trial_standard : spread_standard.spread_standard_aud_per_mwh);
     const cost_summary = battery_configuration
-      ? summarize_break_even_spreads(view_days, (charge_average_price) => break_even_spread(charge_average_price, battery_configuration))
+      ? summarize_break_even_spreads(review_days, (charge_average_price) => break_even_spread(charge_average_price, battery_configuration))
       : null;
     const review_description = describe_spread_review(spread_review, {
       start_date, end_date, event_view_label: EVENT_VIEWS[view_key],
       event_removed_dates: period_days.filter((summary_day) => !kept_dates.has(summary_day.date)).map((summary_day) => summary_day.date),
-      spread_standard, battery_configuration, battery_error: page_state.battery_error, cost_summary,
+      spread_standard, battery_configuration, battery_error: page_state.battery_error, cost_summary, is_trial, configured_battery,
     });
     render_spread_review({
       title_element: element_by_id("review_title"), text_element: element_by_id("review_text"),
       kpi_container: element_by_id("review_kpis"), notes_list: element_by_id("review_notes"),
     }, review_description);
-    page_state.review_chart = draw_spread_review_chart(element_by_id("review_chart"), page_state.review_chart, spread_review);
+    page_state.review_chart = draw_spread_review_chart(element_by_id("review_chart"), page_state.review_chart, spread_review, is_trial);
     set_status("review_status", "");
   } catch (review_error) {
     clear_spread_review(`無法完成價差標準檢討：${review_error.message}`);
   }
+}
+
+/**
+ * 套用試算效率與損耗：兩欄都留空時原樣回傳；有任一欄時以試算參數沿用原本時段重算每天的淨收益。
+ *
+ * @param {readonly import("./daily_summary.js").DailySummaryDay[]} view_days 依期間與事件檢視篩選後的每日資料
+ * @returns {{battery_configuration: import("./shared_configuration.js").BatteryConfiguration | null, configured_battery: import("./shared_configuration.js").BatteryConfiguration | null, review_days: readonly object[]}}
+ *   `battery_configuration` 為計算用的設備參數（試算後），`configured_battery` 只在試算時為設定檔原值
+ * @throws {Error} 輸入不合法，或要試算但設備參數讀不到時
+ */
+function apply_cost_trial(view_days) {
+  const trial_efficiency = parse_trial_efficiency(element_by_id("review_trial_efficiency").value);
+  const trial_degradation = parse_trial_degradation(element_by_id("review_trial_degradation").value);
+  const configured_battery = page_state.battery_configuration;
+  if (trial_efficiency === null && trial_degradation === null) {
+    return { battery_configuration: configured_battery, configured_battery: null, review_days: view_days };
+  }
+  if (!configured_battery) throw new Error(`設備參數讀不到，無法試算效率與損耗：${page_state.battery_error}`);
+  const trial_battery = {
+    ...configured_battery,
+    round_trip_efficiency: trial_efficiency ?? configured_battery.round_trip_efficiency,
+    degradation_cost_aud_per_mwh: trial_degradation ?? configured_battery.degradation_cost_aud_per_mwh,
+  };
+  const energy_mwh = Math.min(trial_battery.capacity_mwh, trial_battery.power_mw * segment_length_for(trial_battery) * INTERVAL_HOURS);
+  return { battery_configuration: trial_battery, configured_battery, review_days: reprice_days(view_days, { ...trial_battery, energy_mwh }) };
 }
 
 /**
@@ -325,12 +358,15 @@ async function load_review_configuration() {
   set_status("review_status", "正在讀取價差標準…");
   try {
     page_state.spread_standard = await fetch_spread_standard();
+    element_by_id("review_trial_standard").placeholder = `目前 ${format_number(page_state.spread_standard.spread_standard_aud_per_mwh, 2)}`;
   } catch (standard_error) {
     set_status("review_status", `無法讀取價差標準：${standard_error.message}`, true);
     return;
   }
   try {
     page_state.battery_configuration = await fetch_battery_configuration();
+    element_by_id("review_trial_efficiency").placeholder = `設定值 ${format_number(page_state.battery_configuration.round_trip_efficiency * 100, 1)}`;
+    element_by_id("review_trial_degradation").placeholder = `設定值 ${format_number(page_state.battery_configuration.degradation_cost_aud_per_mwh, 2)}`;
   } catch (battery_error) {
     page_state.battery_error = battery_error.message;
   }
@@ -338,7 +374,7 @@ async function load_review_configuration() {
   render_spread_review_section();
 }
 
-/** 綁定價差標準檢討的期間與事件檢視。 */
+/** 綁定價差標準檢討的期間、事件檢視與三個試算欄。 */
 function wire_review_controls() {
   const view_select = element_by_id("review_event_view");
   view_select.replaceChildren(...Object.entries(EVENT_VIEWS).map(([view_key, view_label]) => {
@@ -350,6 +386,7 @@ function wire_review_controls() {
   for (const element_id of ["review_start_date", "review_end_date", "review_event_view"]) {
     element_by_id(element_id).addEventListener("change", render_spread_review_section);
   }
+  for (const element_id of REVIEW_INPUT_IDS) element_by_id(element_id).addEventListener("input", render_spread_review_section);
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render_spread_review_section);
 }
 
