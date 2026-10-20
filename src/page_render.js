@@ -1,11 +1,12 @@
 /**
- * 把計算結果畫到頁面上：建議計畫卡片、KPI、電價圖、價差掃描圖。只負責顯示，不做計算。
+ * 把計算結果畫到頁面上：執行或等待的結論、建議計畫卡片、KPI、電價圖、價差掃描圖。只負責顯示，不做計算。
  *
  * 圖表使用全域的 Chart.js（由 index.html 從 cdnjs 載入）。
  */
 
 import { format_nem_label, interval_start_minute } from "./nem_time.js";
 import { format_number } from "./number_format.js";
+import { WAIT_STREAK_ALERT_DAYS } from "./wait_streak.js";
 
 const CHART_VALUE_PADDING = 10;
 const PRICE_DATASET_INDEX = 4;
@@ -27,6 +28,90 @@ export function format_aud(numeric_value) {
 }
 
 /**
+ * 價差（AUD/MWh），兩位小數，負數以「−」開頭。
+ *
+ * @param {number} spread_value 價差
+ * @returns {string} 例如 `A$12.50/MWh`
+ */
+export function format_spread(spread_value) {
+  return `${spread_value < 0 ? "−" : ""}A$${format_number(Math.abs(spread_value), 2)}/MWh`;
+}
+
+/**
+ * @typedef {object} PlanVerdict
+ * @property {"execute" | "wait"} action 執行或等待
+ * @property {string} headline 結論標題
+ * @property {string[]} detail_lines 說明
+ * @property {string[]} warning_lines 提示（標準低於損益兩平價差、連續多日等待）
+ */
+
+/**
+ * 組出執行或等待的結論文字（純文字，由 `render_plan_verdict` 以 textContent 寫入）。
+ *
+ * @param {import("./window_selection.js").PlanDecision} plan_decision `decide_plan_action` 的結果
+ * @param {number} spread_standard 價差標準（AUD/MWh）
+ * @param {number} wait_streak_days 含今天在內連續等待的天數
+ * @returns {PlanVerdict} 結論文字
+ */
+export function describe_plan_verdict(plan_decision, spread_standard, wait_streak_days) {
+  const warning_lines = [];
+  if (plan_decision.standard_below_break_even) {
+    warning_lines.push(
+      `提示：價差標準 ${format_spread(spread_standard)} 低於損益兩平價差 ${format_spread(plan_decision.highest_break_even_spread)}（扣除效率損失與損耗成本後不虧的最低價差），建議到情境評估頁檢討。`,
+    );
+  }
+  if (plan_decision.action !== "execute" && wait_streak_days >= WAIT_STREAK_ALERT_DAYS) {
+    warning_lines.push(`提示：已連續 ${wait_streak_days} 天（依 NEM 日期，只計打開本頁的日子）都是等待，建議到情境評估頁檢討價差標準是否過高。`);
+  }
+  if (plan_decision.action === "execute") {
+    const executable_plan = plan_decision.executable_plan;
+    const cycle_spreads = executable_plan.cycles.map((planned_cycle) => format_spread(planned_cycle.discharge_average_price - planned_cycle.charge_average_price));
+    return {
+      action: "execute",
+      headline: `執行：每個循環的價差都達到價差標準 ${format_spread(spread_standard)}`,
+      detail_lines: [`共 ${executable_plan.cycles.length} 個循環，預估淨收益 ${format_aud(executable_plan.total_value)}；各循環價差 ${cycle_spreads.join("、")}。`],
+      warning_lines,
+    };
+  }
+  if (plan_decision.best_cycle_spread === null) {
+    return {
+      action: "wait",
+      headline: "等待：預測期間內沒有獲利的充放電組合",
+      detail_lines: ["沒有任何一組充放電的價差為正，且扣除效率損失與損耗成本後淨收益為正。"],
+      warning_lines,
+    };
+  }
+  return {
+    action: "wait",
+    headline: `等待：最佳組合的價差 ${format_spread(plan_decision.best_cycle_spread)}，比價差標準 ${format_spread(spread_standard)} 低 ${format_spread(plan_decision.spread_gap)}`,
+    detail_lines: [
+      `本次預測期間內沒有每個循環的價差都達到標準、且淨收益為正的組合。不設標準時的最佳組合淨收益為 ${format_aud(plan_decision.best_plan.total_value)}，僅供參考。`,
+    ],
+    warning_lines,
+  };
+}
+
+/**
+ * 畫執行或等待的結論；文字一律以 textContent 寫入。
+ *
+ * @param {HTMLElement} verdict_container 結論容器
+ * @param {PlanVerdict} plan_verdict `describe_plan_verdict` 的結果
+ */
+export function render_plan_verdict(verdict_container, plan_verdict) {
+  const add_line = (class_name, line_text) => {
+    const line_element = document.createElement("div");
+    line_element.className = class_name;
+    line_element.textContent = line_text;
+    verdict_container.append(line_element);
+  };
+  verdict_container.replaceChildren();
+  verdict_container.className = plan_verdict.action === "execute" ? "verdict run" : "verdict wait";
+  add_line("v", plan_verdict.headline);
+  plan_verdict.detail_lines.forEach((detail_line) => add_line("s", detail_line));
+  plan_verdict.warning_lines.forEach((warning_line) => add_line("s warn", warning_line));
+}
+
+/**
  * 讀取 CSS 色彩變數，讓圖表跟著淺色或深色主題。
  *
  * @param {string} token_name 變數名稱，例如 `--charge`
@@ -45,7 +130,7 @@ function read_css_token(token_name) {
  */
 export function render_plan_steps(plan_container, plan_result, price_points) {
   if (plan_result.cycles.length === 0) {
-    plan_container.innerHTML = `<div class="step d"><div class="t">建議</div><div class="v">預測期間內不建議充放電</div><div class="s">沒有任何一組充放電的價差為正、不低於每循環最低價差，且扣除效率損失與損耗成本後淨收益為正。</div></div>`;
+    plan_container.innerHTML = `<div class="step d"><div class="t">建議</div><div class="v">預測期間內不建議充放電</div><div class="s">沒有任何一組充放電的每個循環價差都達到價差標準，且扣除效率損失與損耗成本後淨收益為正；原因與差距見上方結論。</div></div>`;
     return;
   }
   plan_container.innerHTML = plan_result.cycles
