@@ -7,6 +7,9 @@
  * 結果回答「這個標準保留了多少歷史可得收益、錯過哪些日子」，不是最佳營運門檻：
  * 每日計畫用的是事後電價，也沒有計入預測誤差，所以門檻越低，這裡算出的收益只會相同或更高。
  * 損益兩平價差只作成本說明（`summarize_break_even_spreads`），不限制保留範圍。
+ *
+ * 試算效率與損耗（`reprice_days`）沿用每日摘要原本的充放電時段重算淨收益，不重新選窗，
+ * 所以結果是新參數下的下限估計：原本沒有計畫、但新參數下可能獲利的日子不會出現。
  */
 
 /** 候選標準的間距（AUD/MWh）。 */
@@ -30,6 +33,7 @@ const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_START_INDEX = 5;
 const MONTH_END_INDEX = 7;
 const VALUE_TOLERANCE_AUD = 1e-9;
+const CYCLE_PRICE_FIELDS = Object.freeze(["charge_average_price_aud_per_mwh", "discharge_average_price_aud_per_mwh", "spread_aud_per_mwh"]);
 
 /**
  * @typedef {object} ReviewDay
@@ -83,21 +87,98 @@ export function select_period_days(day_records, start_date, end_date) {
 }
 
 /**
- * 解析「試算標準」輸入欄：留空代表不試算，回傳 null；其餘必須是 0 以上的有限數值。
- * 試算值只用於畫面，不寫入 `config/spread_standard.json`。
+ * 解析試算輸入欄：留空代表不試算，回傳 null；其餘必須是範圍內的有限數值。
+ * 試算值只用於畫面，不寫入設定檔。
  *
  * @param {string} input_text 輸入欄的文字
- * @returns {number | null} 試算標準（AUD/MWh），留空時為 null
+ * @param {string} field_label 欄位名稱（錯誤訊息用）
+ * @param {(field_value: number) => boolean} is_within_range 範圍判斷
+ * @param {string} range_text 範圍說明（錯誤訊息用）
+ * @returns {number | null} 數值，留空時為 null
+ * @throws {Error} 不是數值或超出範圍時
+ */
+export function parse_trial_input(input_text, field_label, is_within_range, range_text) {
+  const trimmed_text = String(input_text ?? "").trim();
+  if (trimmed_text === "") return null;
+  const trial_value = Number(trimmed_text);
+  if (!Number.isFinite(trial_value) || !is_within_range(trial_value)) {
+    throw new Error(`${field_label}必須是${range_text}的數值：${JSON.stringify(trimmed_text)}`);
+  }
+  return trial_value;
+}
+
+/**
+ * 試算標準（AUD/MWh），0 以上；留空為 null。
+ *
+ * @param {string} input_text 輸入欄的文字
+ * @returns {number | null} 試算標準
  * @throws {Error} 不是數值或小於 0 時
  */
 export function parse_trial_standard(input_text) {
-  const trimmed_text = String(input_text ?? "").trim();
-  if (trimmed_text === "") return null;
-  const trial_standard = Number(trimmed_text);
-  if (!Number.isFinite(trial_standard) || trial_standard < 0) {
-    throw new Error(`試算標準必須是 0 以上的數值：${JSON.stringify(trimmed_text)}`);
-  }
-  return trial_standard;
+  return parse_trial_input(input_text, "試算標準", (field_value) => field_value >= 0, "0 以上");
+}
+
+/**
+ * 試算來回效率：輸入百分比（大於 0、不超過 100），回傳比例（0 至 1）；留空為 null。
+ *
+ * @param {string} input_text 輸入欄的文字（%）
+ * @returns {number | null} 來回效率（比例）
+ * @throws {Error} 不是數值或超出範圍時
+ */
+export function parse_trial_efficiency(input_text) {
+  const efficiency_percent = parse_trial_input(input_text, "試算來回效率", (field_value) => field_value > 0 && field_value <= 100, "大於 0 且不超過 100");
+  return efficiency_percent === null ? null : efficiency_percent / 100;
+}
+
+/**
+ * 試算每 MWh 放電損耗成本（AUD），0 以上；留空為 null。
+ *
+ * @param {string} input_text 輸入欄的文字
+ * @returns {number | null} 損耗成本
+ * @throws {Error} 不是數值或小於 0 時
+ */
+export function parse_trial_degradation(input_text) {
+  return parse_trial_input(input_text, "試算損耗成本", (field_value) => field_value >= 0, "0 以上");
+}
+
+/**
+ * 以試算的設備參數重算每天的淨收益，沿用每日摘要原本的充放電時段（不重新選窗）。
+ *
+ * 每個循環的淨收益＝充電量 × MLF ×（效率 × 放電均價 − 充電均價）− 充電量 × 效率 × 損耗成本，
+ * 與 `window_selection.select_best_plan` 相同。淨收益不為正的循環在新參數下不做；
+ * 當天價差改為剩下循環的最小值，全部不做時當天視為沒有計畫。資料不完整的日子原樣保留。
+ *
+ * @template {ReviewDay} DayRecord
+ * @param {readonly DayRecord[]} day_records 每日資料
+ * @param {{energy_mwh: number, round_trip_efficiency: number, degradation_cost_aud_per_mwh: number, marginal_loss_factor: number}} cost_settings 每次充電量與試算參數
+ * @returns {DayRecord[]} 重算後的每日資料（新物件，不改動輸入）
+ * @throws {Error} 循環缺少均價或價差欄位時
+ */
+export function reprice_days(day_records, cost_settings) {
+  const { energy_mwh, round_trip_efficiency, degradation_cost_aud_per_mwh, marginal_loss_factor } = cost_settings;
+  return day_records.map((day_record) => {
+    if (day_record.excluded) return day_record;
+    const kept_cycles = [];
+    day_record.cycles.forEach((planned_cycle, cycle_index) => {
+      for (const field_name of CYCLE_PRICE_FIELDS) {
+        const field_value = planned_cycle?.[field_name];
+        if (typeof field_value !== "number" || !Number.isFinite(field_value)) {
+          throw new Error(`${day_record.date} 第 ${cycle_index + 1} 個循環的 ${field_name} 必須是數值`);
+        }
+      }
+      const net_value_aud =
+        energy_mwh * marginal_loss_factor *
+          (round_trip_efficiency * planned_cycle.discharge_average_price_aud_per_mwh - planned_cycle.charge_average_price_aud_per_mwh) -
+        energy_mwh * round_trip_efficiency * degradation_cost_aud_per_mwh;
+      if (net_value_aud > VALUE_TOLERANCE_AUD) kept_cycles.push({ ...planned_cycle, net_value_aud });
+    });
+    return {
+      ...day_record,
+      cycles: kept_cycles,
+      net_value_aud: kept_cycles.reduce((value_sum, kept_cycle) => value_sum + kept_cycle.net_value_aud, 0),
+      best_spread_aud_per_mwh: kept_cycles.length === 0 ? null : Math.min(...kept_cycles.map((kept_cycle) => kept_cycle.spread_aud_per_mwh)),
+    };
+  });
 }
 
 /**
