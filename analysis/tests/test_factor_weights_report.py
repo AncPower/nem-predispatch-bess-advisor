@@ -40,7 +40,7 @@ def build_sample_document() -> dict[str, object]:
     factor_dataset, weight_solution = build_sample_inputs()
     source_fingerprint = SourceFingerprint({"analysis/a.py": "aa"}, {"data/external/b.csv": "bb"}, "cc")
     raw_manifest = (RawFileEntry("2024-01_2024-12/trading_price.csv", 10, "dd"),)
-    report_metadata = ReportMetadata(GENERATED_AT, "1.15.1", BatterySpecification(5, 20, 1))
+    report_metadata = ReportMetadata(GENERATED_AT, "1.15.1", BatterySpecification(5, 20, 1, 1, 0))
     return build_report_document(factor_dataset, weight_solution, source_fingerprint, raw_manifest, report_metadata)
 
 

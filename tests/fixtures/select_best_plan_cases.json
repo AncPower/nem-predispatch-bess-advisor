@@ -1,5 +1,5 @@
 {
-  "description": "select_best_plan 的共用測試案例。JS（tests/select_best_plan_fixture.test.js）與 Python（analysis/tests/test_arbitrage_plan.py）讀同一份，確認兩邊結果相同。預期值由 src/window_selection.js 算出；前 11 個小案例另以手算核對。",
+  "description": "select_best_plan 的共用測試案例。JS（tests/select_best_plan_fixture.test.js）與 Python（analysis/tests/test_arbitrage_plan.py）讀同一份，確認兩邊結果相同。預期值由 src/window_selection.js 算出；前 11 個小案例與最後 5 個效率、損耗案例（#27）另以手算核對。前 14 個案例的來回效率為 1、損耗為 0，預期值與 #27 之前相同。",
   "cases": [
     {
       "case_name": "joint_selection_finds_earlier_cycle",
@@ -8,12 +8,15 @@
       "battery_specification": {
         "power_mw": 5,
         "capacity_mwh": 20,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 8,
         "energy_mwh": 20,
+        "discharge_energy_mwh": 20,
         "cycles": [
           {
             "charge_start_index": 0,
@@ -40,12 +43,15 @@
       "battery_specification": {
         "power_mw": 2,
         "capacity_mwh": 1,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 1,
         "energy_mwh": 1,
+        "discharge_energy_mwh": 1,
         "cycles": [
           {
             "charge_start_index": 0,
@@ -65,12 +71,15 @@
       "battery_specification": {
         "power_mw": 2,
         "capacity_mwh": 1,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 1,
         "energy_mwh": 1,
+        "discharge_energy_mwh": 1,
         "cycles": [
           {
             "charge_start_index": 0,
@@ -90,12 +99,15 @@
       "battery_specification": {
         "power_mw": 2,
         "capacity_mwh": 1,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 1,
         "energy_mwh": 1,
+        "discharge_energy_mwh": 1,
         "cycles": [
           {
             "charge_start_index": 0,
@@ -115,12 +127,15 @@
       "battery_specification": {
         "power_mw": 2,
         "capacity_mwh": 1,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 1,
         "energy_mwh": 1,
+        "discharge_energy_mwh": 1,
         "cycles": [],
         "total_value": 0
       }
@@ -132,12 +147,15 @@
       "battery_specification": {
         "power_mw": 5,
         "capacity_mwh": 20,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 8,
         "energy_mwh": 20,
+        "discharge_energy_mwh": 20,
         "cycles": [],
         "total_value": 0
       }
@@ -149,12 +167,15 @@
       "battery_specification": {
         "power_mw": 2,
         "capacity_mwh": 1,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 50,
       "expected": {
         "segment_length": 1,
         "energy_mwh": 1,
+        "discharge_energy_mwh": 1,
         "cycles": [
           {
             "charge_start_index": 0,
@@ -174,12 +195,15 @@
       "battery_specification": {
         "power_mw": 2,
         "capacity_mwh": 1,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 1,
         "energy_mwh": 1,
+        "discharge_energy_mwh": 1,
         "cycles": [
           {
             "charge_start_index": 0,
@@ -199,12 +223,15 @@
       "battery_specification": {
         "power_mw": 2,
         "capacity_mwh": 1,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 1,
         "energy_mwh": 1,
+        "discharge_energy_mwh": 1,
         "cycles": [
           {
             "charge_start_index": 0,
@@ -224,12 +251,15 @@
       "battery_specification": {
         "power_mw": 2,
         "capacity_mwh": 1,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 0.9
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 1,
         "energy_mwh": 1,
+        "discharge_energy_mwh": 1,
         "cycles": [
           {
             "charge_start_index": 0,
@@ -249,12 +279,15 @@
       "battery_specification": {
         "power_mw": 2,
         "capacity_mwh": 1,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 1,
         "energy_mwh": 1,
+        "discharge_energy_mwh": 1,
         "cycles": [
           {
             "charge_start_index": 0,
@@ -281,12 +314,15 @@
       "battery_specification": {
         "power_mw": 5,
         "capacity_mwh": 20,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 8,
         "energy_mwh": 20,
+        "discharge_energy_mwh": 20,
         "cycles": [
           {
             "charge_start_index": 19,
@@ -306,12 +342,15 @@
       "battery_specification": {
         "power_mw": 5,
         "capacity_mwh": 20,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 8,
         "energy_mwh": 20,
+        "discharge_energy_mwh": 20,
         "cycles": [
           {
             "charge_start_index": 1,
@@ -338,12 +377,15 @@
       "battery_specification": {
         "power_mw": 5,
         "capacity_mwh": 20,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 0,
         "marginal_loss_factor": 1
       },
       "minimum_cycle_spread": 0,
       "expected": {
         "segment_length": 8,
         "energy_mwh": 20,
+        "discharge_energy_mwh": 20,
         "cycles": [
           {
             "charge_start_index": 0,
@@ -361,6 +403,130 @@
           }
         ],
         "total_value": 177652.75825
+      }
+    },
+    {
+      "case_name": "efficiency_scales_discharge_energy",
+      "description": "來回效率 0.8：放電量 0.8 MWh，淨收益 0.8×110−10＝78",
+      "price_values": [10, 110],
+      "battery_specification": {
+        "power_mw": 2,
+        "capacity_mwh": 1,
+        "round_trip_efficiency": 0.8,
+        "degradation_cost_aud_per_mwh": 0,
+        "marginal_loss_factor": 1
+      },
+      "minimum_cycle_spread": 0,
+      "expected": {
+        "segment_length": 1,
+        "energy_mwh": 1,
+        "discharge_energy_mwh": 0.8,
+        "cycles": [
+          {
+            "charge_start_index": 0,
+            "discharge_start_index": 1,
+            "charge_average_price": 10,
+            "discharge_average_price": 110,
+            "net_value": 78
+          }
+        ],
+        "total_value": 78
+      }
+    },
+    {
+      "case_name": "efficiency_switches_to_single_cycle",
+      "description": "效率 0.5：兩個循環（0→1、2→3）淨收益 25＋10 低於一個循環（0→3）的 50；效率 1 時會選兩個循環",
+      "price_values": [0, 50, 40, 100],
+      "battery_specification": {
+        "power_mw": 2,
+        "capacity_mwh": 1,
+        "round_trip_efficiency": 0.5,
+        "degradation_cost_aud_per_mwh": 0,
+        "marginal_loss_factor": 1
+      },
+      "minimum_cycle_spread": 0,
+      "expected": {
+        "segment_length": 1,
+        "energy_mwh": 1,
+        "discharge_energy_mwh": 0.5,
+        "cycles": [
+          {
+            "charge_start_index": 0,
+            "discharge_start_index": 3,
+            "charge_average_price": 0,
+            "discharge_average_price": 100,
+            "net_value": 50
+          }
+        ],
+        "total_value": 50
+      }
+    },
+    {
+      "case_name": "degradation_cost_drops_small_spread",
+      "description": "損耗成本 15：價差 10 的循環（0→1）淨收益為負被排除，只排 2→3，淨收益 100−15＝85",
+      "price_values": [50, 60, 0, 100],
+      "battery_specification": {
+        "power_mw": 2,
+        "capacity_mwh": 1,
+        "round_trip_efficiency": 1,
+        "degradation_cost_aud_per_mwh": 15,
+        "marginal_loss_factor": 1
+      },
+      "minimum_cycle_spread": 0,
+      "expected": {
+        "segment_length": 1,
+        "energy_mwh": 1,
+        "discharge_energy_mwh": 1,
+        "cycles": [
+          {
+            "charge_start_index": 2,
+            "discharge_start_index": 3,
+            "charge_average_price": 0,
+            "discharge_average_price": 100,
+            "net_value": 85
+          }
+        ],
+        "total_value": 85
+      }
+    },
+    {
+      "case_name": "break_even_spread_is_not_profitable",
+      "description": "效率 0.8、損耗 5：價差 30 剛好等於損益兩平價差 100×0.25＋5，淨收益為 0，不排",
+      "price_values": [100, 130],
+      "battery_specification": {
+        "power_mw": 2,
+        "capacity_mwh": 1,
+        "round_trip_efficiency": 0.8,
+        "degradation_cost_aud_per_mwh": 5,
+        "marginal_loss_factor": 1
+      },
+      "minimum_cycle_spread": 0,
+      "expected": {
+        "segment_length": 1,
+        "energy_mwh": 1,
+        "discharge_energy_mwh": 0.8,
+        "cycles": [],
+        "total_value": 0
+      }
+    },
+    {
+      "case_name": "negative_spread_rejected_even_if_net_positive",
+      "description": "效率 0.5、負電價：−20 充、−30 放的淨收益 −15＋20＝5 為正，但價差為負，不排",
+      "price_values": [-20, -30],
+      "battery_specification": {
+        "power_mw": 2,
+        "capacity_mwh": 1,
+        "round_trip_efficiency": 0.5,
+        "degradation_cost_aud_per_mwh": 0,
+        "marginal_loss_factor": 1
+      },
+      "minimum_cycle_spread": 0,
+      "expected": {
+        "segment_length": 1,
+        "energy_mwh": 1,
+        "discharge_energy_mwh": 0.5,
+        "cycles": [],
+        "total_value": 0
       }
     }
   ]

@@ -40,12 +40,12 @@ function read_css_token(token_name) {
  * 畫建議充放電計畫的卡片。
  *
  * @param {HTMLElement} plan_container 卡片容器
- * @param {{segment_length: number, energy_mwh: number, cycles: object[]}} plan_result 建議計畫
+ * @param {{segment_length: number, energy_mwh: number, discharge_energy_mwh: number, cycles: object[]}} plan_result 建議計畫
  * @param {{interval_end_minute: number, price: number}[]} price_points 預測電價
  */
 export function render_plan_steps(plan_container, plan_result, price_points) {
   if (plan_result.cycles.length === 0) {
-    plan_container.innerHTML = `<div class="step d"><div class="t">建議</div><div class="v">預測期間內不建議充放電</div><div class="s">沒有任何一組充放電的價差為正，且不低於每循環最低價差。</div></div>`;
+    plan_container.innerHTML = `<div class="step d"><div class="t">建議</div><div class="v">預測期間內不建議充放電</div><div class="s">沒有任何一組充放電的價差為正、不低於每循環最低價差，且扣除效率損失與損耗成本後淨收益為正。</div></div>`;
     return;
   }
   plan_container.innerHTML = plan_result.cycles
@@ -58,7 +58,7 @@ export function render_plan_steps(plan_container, plan_result, price_points) {
  *
  * @param {object} planned_cycle 循環
  * @param {number} cycle_index 第幾個循環（從 0 起算）
- * @param {{segment_length: number, energy_mwh: number}} plan_result 建議計畫
+ * @param {{segment_length: number, energy_mwh: number, discharge_energy_mwh: number}} plan_result 建議計畫
  * @param {{interval_end_minute: number, price: number}[]} price_points 預測電價
  * @returns {string} HTML
  */
@@ -69,7 +69,7 @@ function build_cycle_html(planned_cycle, cycle_index, plan_result, price_points)
   const price_spread = planned_cycle.discharge_average_price - planned_cycle.charge_average_price;
   return `<div class="step"><div class="t">第 ${cycle_number} 次｜開始充電</div><div class="v">${charge_window.start_label}</div><div class="s">至 ${charge_window.end_label}，均價 ${format_aud(planned_cycle.charge_average_price)}；建議充電價格上限 ${format_aud(Math.ceil(charge_window.highest_price))}</div></div>
     <div class="step d"><div class="t">第 ${cycle_number} 次｜開始放電</div><div class="v">${discharge_window.start_label}</div><div class="s">至 ${discharge_window.end_label}，均價 ${format_aud(planned_cycle.discharge_average_price)}；建議放電價格下限 ${format_aud(Math.floor(discharge_window.lowest_price))}</div></div>
-    <div class="step" style="border-left-color:var(--ink-3)"><div class="t">第 ${cycle_number} 次｜預估淨收益</div><div class="v">${format_aud(planned_cycle.net_value)}</div><div class="s">價差 ${format_aud(price_spread)}/MWh，放電 ${format_number(plan_result.energy_mwh, 1)} MWh</div></div>`;
+    <div class="step" style="border-left-color:var(--ink-3)"><div class="t">第 ${cycle_number} 次｜預估淨收益</div><div class="v">${format_aud(planned_cycle.net_value)}</div><div class="s">價差 ${format_aud(price_spread)}/MWh，充電 ${format_number(plan_result.energy_mwh, 1)} MWh、放電 ${format_number(plan_result.discharge_energy_mwh, 1)} MWh（已扣效率損失與損耗成本）</div></div>`;
 }
 
 /**
